@@ -17,8 +17,8 @@ This guide is for Astute Systems staff who release the extension to the VS Code 
 4. Commit, then create and push a tag that matches the version:
 
    ```bash
-   git tag v0.16.0
-   git push origin main v0.16.0
+   git tag v0.16.1
+   git push origin main v0.16.1
    ```
 
 5. Pushing the tag starts the **Publish to VS Code Marketplace** workflow straight away, and a version number can't be reused, so check that the **CI** workflow passed on that commit first.

@@ -91,7 +91,7 @@
         "astuteChat.model": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Ollama model to use. Leave empty to use the smallest installed model."
+          "markdownDescription": "Ollama model to use. Leave empty to use the smallest local model."
         },
         "astuteChat.agentModel": {
           "type": "string",
@@ -101,7 +101,7 @@
         "astuteChat.visionModel": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Model that reads images when the chat model can't. Leave empty to use the smallest installed model with vision."
+          "markdownDescription": "Model that reads images when the chat model can't. Leave empty to use the smallest local model with vision."
         },
         "astuteChat.temperature": {
           "type": "number",

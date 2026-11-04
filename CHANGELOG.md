@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.16.1
+
+- Show Logs now lists how each tool ended and what the change report contained
+- Settings say that automatic choices use the smallest local model
+
 ## 0.16.0
 
 First Marketplace release.

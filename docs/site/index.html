@@ -43,7 +43,7 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <div class="layout">
 <nav aria-label="Contents">
 <div class="brand"><img src="images/icon.png" alt="">Astute Chat</div>
-<span class="version">Version 0.16.0</span>
+<span class="version">Version 0.16.1</span>
 <a href="#features">Features</a>
 <a href="#requirements">Requirements</a>
 <a href="#privacy">Privacy</a>
@@ -75,6 +75,9 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 </nav>
 <main>
 <p><img src="images/screenshots/banner.png" alt="Astute Chat"></p>
+<p><a href="https://github.com/user/repo/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/Build-Passing-brightgreen" alt="Build Status"></a>
+<a href="https://github.com/user/repo/actions/workflows/test.yml"><img src="https://img.shields.io/badge/Tests-Passing-brightgreen" alt="Test Coverage"></a>
+<a href="https://github.com/user/repo/releases/latest"><img src="https://img.shields.io/badge/Release-v1.0.0-blue" alt="Latest Release"></a></p>
 <p>Private AI chat and a coding agent for VS Code, running on your own <a href="https://ollama.com">Ollama</a> server. It needs no cloud service, GitHub sign-in or Copilot plan, and it works with no internet connection. Astute Chat sits in a tab beside Chat in the secondary side bar.</p>
 <p><img src="images/screenshots/ask.png" alt="Astute Chat answering a question about the open file"></p>
 <h2 id="features">Features</h2>
@@ -175,7 +178,7 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <p>To add other files or a folder, type <code>@</code> in the message box and pick one, right-click them in the Explorer and choose <strong>Add to Astute Chat</strong>, or drag them onto the chat. A folder tells the model where to work, and new files go there unless you say otherwise. Long files are shortened, and models with tools can read the rest. <strong>New Chat</strong> clears these.</p>
 <h2 id="images">Images</h2>
 <p>Drag a PNG or JPEG onto the chat, from your desktop or the VS Code Explorer, or paste one into the message box. If VS Code asks you to, hold Shift as you drop. Models can also open images in the workspace themselves, so you can ask something like &quot;What does docs/screenshot.png show?&quot;.</p>
-<p>If the chat model has no vision support, a vision model reads the image first and passes a description and any text to the chat model. Set this with <code>astuteChat.visionModel</code>, or leave it empty to use the smallest installed model with vision. Small models can miss details, so choose a larger one if exact text matters.</p>
+<p>If the chat model has no vision support, a vision model reads the image first and passes a description and any text to the chat model. Set this with <code>astuteChat.visionModel</code>, or leave it empty to use the smallest local model with vision. Small models can miss details, so choose a larger one if exact text matters.</p>
 <h2 id="no-dummy-files">No dummy files</h2>
 <p>Agent refuses to write:</p>
 <ul>
@@ -230,7 +233,7 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <h2 id="set-up">Set up</h2>
 <ol>
 <li>Start Ollama, and install a model with <code>ollama pull &lt;model&gt;</code>.</li>
-<li>Install Astute Chat from the Extensions view. To install a VSIX file instead, run <code>code --install-extension astute-chat-ollama-0.16.0.vsix</code>.</li>
+<li>Install Astute Chat from the Extensions view. To install a VSIX file instead, run <code>code --install-extension astute-chat-ollama-0.16.1.vsix</code>.</li>
 <li>Open the <strong>Astute</strong> tab beside Chat. If it's hidden, run <strong>Astute Chat: Open Chat</strong>.</li>
 </ol>
 <p>To use another server, run <strong>Astute Chat: Set Server Address</strong>, or use the server icon on the tab. The address shows in the status bar. Enter an IP address or hostname with an optional port, such as <code>192.168.1.20:11434</code>.</p>
@@ -329,7 +332,7 @@ Your instructions here.
 </tr>
 <tr>
 <td><code>astuteChat.model</code></td>
-<td>Smallest installed</td>
+<td>Smallest local</td>
 <td>Model to use</td>
 </tr>
 <tr>

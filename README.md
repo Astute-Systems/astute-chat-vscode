@@ -87,7 +87,7 @@ To add other files or a folder, type `@` in the message box and pick one, right-
 
 Drag a PNG or JPEG onto the chat, from your desktop or the VS Code Explorer, or paste one into the message box. If VS Code asks you to, hold Shift as you drop. Models can also open images in the workspace themselves, so you can ask something like "What does docs/screenshot.png show?".
 
-If the chat model has no vision support, a vision model reads the image first and passes a description and any text to the chat model. Set this with `astuteChat.visionModel`, or leave it empty to use the smallest installed model with vision. Small models can miss details, so choose a larger one if exact text matters.
+If the chat model has no vision support, a vision model reads the image first and passes a description and any text to the chat model. Set this with `astuteChat.visionModel`, or leave it empty to use the smallest local model with vision. Small models can miss details, so choose a larger one if exact text matters.
 
 ## No dummy files
 
@@ -182,7 +182,7 @@ Select **Stop** or press Esc. This ends the model's response, cancels any waitin
 ## Set up
 
 1. Start Ollama, and install a model with `ollama pull <model>`.
-2. Install Astute Chat from the Extensions view. To install a VSIX file instead, run `code --install-extension astute-chat-ollama-0.16.0.vsix`.
+2. Install Astute Chat from the Extensions view. To install a VSIX file instead, run `code --install-extension astute-chat-ollama-0.16.1.vsix`.
 3. Open the **Astute** tab beside Chat. If it's hidden, run **Astute Chat: Open Chat**.
 
 To use another server, run **Astute Chat: Set Server Address**, or use the server icon on the tab. The address shows in the status bar. Enter an IP address or hostname with an optional port, such as `192.168.1.20:11434`.
@@ -261,7 +261,7 @@ Astute Chat follows an `AGENTS.md` file in your workspace, the same format many 
 | `astuteChat.server.host` | `127.0.0.1` | Server IP address or hostname |
 | `astuteChat.server.port` | `11434` | Server port |
 | `astuteChat.server.https` | `false` | Use HTTPS |
-| `astuteChat.model` | Smallest installed | Model to use |
+| `astuteChat.model` | Smallest local | Model to use |
 | `astuteChat.agentModel` | The chat model | Model for Agent mode |
 | `astuteChat.visionModel` | Smallest with vision | Reads images for models without vision |
 | `astuteChat.numCtx` | `8192` | Context window, capped to the model's limit |
