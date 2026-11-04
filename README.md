@@ -1,0 +1,245 @@
+![Astute Chat](images/screenshots/banner.png)
+
+Private AI chat and a coding agent for VS Code, running on your own [Ollama](https://ollama.com) server. It needs no cloud service, GitHub sign-in or Copilot plan, and it works with no internet connection. Astute Chat sits in a tab beside Chat in the secondary side bar.
+
+![Astute Chat answering a question about the open file](images/screenshots/ask.png)
+
+## Features
+
+- **Ask, Plan and Agent modes**, chosen below the message box
+- **Context from your work**: the open file, selected code, and files or folders you add
+- **Answers for your system**: the model knows your OS, shell, workspace root, Git root and branch
+- **Any Ollama server**, local or on your network, by IP address and port
+- **Live progress** with token count and speed, such as `Thinking… · 2.7k tokens · 16.4 t/s`
+- **Collapsible thinking** for models that support it
+- **Workspace skills** from `.astute/skills`
+- **Selected code** is added to your next message automatically
+- **Copy and Run buttons** on code snippets
+- **Images and screenshots** you can attach, and that Agent can open from the workspace
+- **File links** that open workspace files named in the chat, at the right line
+- **Retro vector display** with blue chat text and white Courier code, on every VS Code theme
+
+## Requirements
+
+- VS Code 1.127 or later
+- [Ollama](https://ollama.com), on this machine or a server you trust
+- At least one Ollama model. Agent mode needs a model that supports tools, and images need one with vision. A GPU makes a large difference to speed.
+
+## Privacy
+
+Astute Chat has no telemetry. Your prompts, code and images go only to the Ollama server you choose. The default server is on your own machine.
+
+## Modes
+
+| Mode | What it does | Can change your workspace |
+| --- | --- | --- |
+| Ask | Answers questions and can read workspace files | No |
+| Plan | Researches the workspace and writes a plan | No |
+| Agent | Edits files and runs commands to finish a task | Yes, with your approval |
+
+Switch modes with the selector, or start a message with `/ask`, `/plan` or `/agent`. After a plan, select **Implement in Agent mode** to carry it out.
+
+In every mode, models can run read-only checks without asking, such as `git status`, `git log`, `uname -a`, `df -h` and `ollama list`. Ask and Plan stop there. Agent can also run any command, such as `git commit`, builds and service restarts, subject to your approval level. Commands can't answer prompts, so `sudo` works only if it needs no password.
+
+Agent mode needs a model that supports tools. If the selected model can't use them, Agent picks one that can and tells you which. To always use one model for Agent, set `astuteChat.agentModel`. Agent can't write outside the workspace, and it won't touch `.git`, `.env` files or private keys.
+
+![Agent mode building a library in small code windows](images/screenshots/agent.png)
+
+## Approvals
+
+In Agent mode, a card in the tab asks you to approve each action. Choose how much it asks with the control beside the mode selector. Select it or press Shift+Tab in the message box to cycle.
+
+| Level | Approves automatically | Still asks about |
+| --- | --- | --- |
+| Ask first | Nothing | Everything |
+| Auto-edit | Ordinary file edits | Sensitive files and all commands |
+| Safe auto | Ordinary file edits and read-only commands | Sensitive files and any other command |
+
+Sensitive files include `.vscode`, `.github`, `.astute`, build files such as `package.json` and `Makefile`, and scripts. Edits that remove more than half of a file also ask.
+
+**Safe auto** approves a command only if it is on a read-only list, such as `ls`, `grep` and `git status`, and uses no redirects or substitution. Build and test commands ask because they run project code. To let Safe auto run a command you trust, add it to `astuteChat.approvals.allowedCommands`. Treat this as a convenience, not a security boundary: review what the agent did, and use version control.
+
+Each auto-approved action appears in the chat and in the logs.
+
+![An approval card waiting for a decision](images/screenshots/approval.png)
+
+### Auto
+
+The lightning **Auto** toggle beside Send turns off all approvals in Agent mode, including for shell commands, which can do anything your user account can. Agent still can't write outside the workspace, change `.git` or secret files, or create dummy files, but a command isn't limited in this way. Use version control, and only use Auto on projects and models you trust. Every action is listed in **Astute Chat: Show Logs**. Select **Stop** or press Esc to end a run.
+
+## File and folder context
+
+The file you have open goes with each message, including unsaved changes, so you can say "this file". It appears as a small tag above the message box, where you can remove it. If you've selected code, only the selection is sent. Files that may hold secrets, such as `.env`, are never added.
+
+To add other files or a folder, type `@` in the message box and pick one, right-click them in the Explorer and choose **Add to Astute Chat**, or drag them onto the chat. A folder tells the model where to work, and new files go there unless you say otherwise. Long files are shortened, and models with tools can read the rest. **New Chat** clears these.
+
+## Images
+
+Drag a PNG or JPEG onto the chat, from your desktop or the VS Code Explorer, or paste one into the message box. If VS Code asks you to, hold Shift as you drop. Models can also open images in the workspace themselves, so you can ask something like "What does docs/screenshot.png show?".
+
+If the chat model has no vision support, a vision model reads the image first and passes a description and any text to the chat model. Set this with `astuteChat.visionModel`, or leave it empty to use the smallest installed model with vision. Small models can miss details, so choose a larger one if exact text matters.
+
+## No dummy files
+
+Agent refuses to write:
+
+- empty files, except ones meant to be empty such as `__init__.py`
+- build outputs such as `.a`, `.o`, `.so` and `.exe`, which must come from a real build command
+- binary files such as images and PDFs
+- code with placeholder comments such as `// your code here`, or with only comments
+
+A refusal appears in the chat, and the model is told to do the work properly. If a command leaves an empty build output, such as `touch libfoo.a`, the chat says so.
+
+## Code snippets
+
+Every code block has a **Copy** button. Finished shell snippets also have **Run**, which runs the snippet straight away in your open terminal, or in a new one if none is open. It runs as soon as you select it, with no approval step and whatever the mode, so read the command first. It also goes to whatever is running in that terminal, so make sure a shell prompt is showing.
+
+## Review mode
+
+The **Review** toggle beside **Auto** keeps Agent's work on its own branch. Agent creates a branch such as `astute/add-driver`, and commits the files it wrote there. Your original branch stays as it was. The reply then offers **View changes**, **Merge** and **Discard**.
+
+Review mode needs a Git repository with no uncommitted changes to tracked files. If that isn't the case, the chat says so and Agent works on the current branch. It commits only the files written with file tools, so files a command creates stay uncommitted, and Discard removes the commit but not those files. Follow-up requests continue on the same branch until you merge or discard it. Shell commands can still change anything, including other branches.
+
+## MCP tools
+
+Agent can use tools from [MCP](https://modelcontextprotocol.io) servers, which connect models to outside systems. Add them to your user settings:
+
+```json
+"astuteChat.mcp.servers": {
+  "files": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/me/docs"]
+  }
+}
+```
+
+Servers run as programs on your machine, so add only ones you trust. They come only from user settings, so a workspace can't start one. Each MCP tool call asks first, at every level except full **Auto**, and Ask and Plan don't get MCP tools. Each tool uses up context, so only the first 20 tools are offered. Local servers that use stdio are supported, but HTTP servers aren't.
+
+## Chat history
+
+**New Chat** saves the current chat. Select the history icon at the top of the tab to reopen or delete a saved chat. Astute Chat keeps your last 30 chats for each workspace, on this computer. Large tool output isn't kept in saved chats.
+
+## Finding code
+
+Models can search the workspace from a plain description, such as "where do we retry a connection". This ranks code by the words it shares with the description, including the parts of names like `runChat`. It needs no extra model and works offline, but it doesn't understand meaning, so it can miss code that uses different words.
+
+## Errors and terminal output
+
+Models can read VS Code's Problems panel, and your recent terminal commands with their output, so you can say "fix that error". Terminal reading needs VS Code shell integration, which is on by default for bash, zsh, fish and PowerShell. Terminal output goes to the model only when it asks for it, so take care if your commands print secrets.
+
+If a command fails in Agent mode, the model is sent back to fix it, up to three times. If it's still failing at the end, the chat says so.
+
+Long chats are summarised automatically, using your chat model, so earlier decisions survive the context limit. This adds a short pause when it happens.
+
+## See and undo what Agent did
+
+Approval cards for file changes have a **View diff** button, which opens VS Code's diff view. After each Agent reply, a short report lists the files created and edited, and how many commands ran or failed. It comes from what the tools really did, not from the model's reply.
+
+**Undo file changes** restores the files Agent wrote in that reply. It leaves alone any file that has changed since, so it can't overwrite newer work. It can't undo shell commands, and it's available until you start a new chat or reload VS Code.
+
+## Stop a response
+
+Select **Stop** or press Esc. This ends the model's response, cancels any waiting approval, skips remaining tools, and stops a running command along with anything it started. Text received so far stays in the chat.
+
+## Set up
+
+1. Start Ollama, and install a model with `ollama pull <model>`.
+2. Install Astute Chat from the Extensions view. To install a VSIX file instead, run `code --install-extension astute-chat-ollama-0.16.0.vsix`.
+3. Open the **Astute** tab beside Chat. If it's hidden, run **Astute Chat: Open Chat**.
+
+To use another server, run **Astute Chat: Set Server Address**, or use the server icon on the tab. The address shows in the status bar. Enter an IP address or hostname with an optional port, such as `192.168.1.20:11434`.
+
+A remote server must listen on your network, so set `OLLAMA_HOST=0.0.0.0` on that server. Ollama has no authentication and plain HTTP isn't encrypted, so use it only on a network you trust or behind a TLS proxy.
+
+## Use it offline
+
+The extension bundles everything it needs, including its fonts. To set up an air-gapped machine:
+
+1. On a connected machine, build the VSIX and run `ollama pull <model>`.
+2. Copy the VSIX and the Ollama models folder to the offline machine. The folder is `~/.ollama/models`, or `/usr/share/ollama/.ollama/models` for the Linux service.
+3. Run `code --install-extension` on the VSIX.
+
+## Commands in chat
+
+| Command | Action |
+| --- | --- |
+| `/help` | Lists commands and skills |
+| `/refresh` | Reloads skills |
+| `/clear` | Starts a new chat |
+| `/<skill-name>` | Uses a specific skill |
+
+## Skills
+
+Add a markdown file under `.astute/skills`. Skills match your question on their name, title, keywords and description.
+
+```markdown
+---
+description: Review code and report defects in priority order.
+keywords: review, bugs, defects
+---
+
+# Code Review
+
+Your instructions here.
+```
+
+Skills and file tools are turned off until you trust the workspace.
+
+### Built-in language skills
+
+Astute Chat includes short, experimental C, C++ and Python guidance. It's off by default, because it didn't improve results in testing. To try it, set `astuteChat.languageSkills` to `true`. It then applies when your request, open file or project uses that language, and **Astute Chat: Show Logs** lists which skills were used. To replace one, add a workspace skill named `c`, `cpp` or `python`.
+
+### AGENTS.md
+
+Astute Chat follows an `AGENTS.md` file in your workspace, the same format many other coding agents read. The file closest to the code you have open is used, and only its first 4,000 characters.
+
+## Settings
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `astuteChat.server.host` | `127.0.0.1` | Server IP address or hostname |
+| `astuteChat.server.port` | `11434` | Server port |
+| `astuteChat.server.https` | `false` | Use HTTPS |
+| `astuteChat.model` | Smallest installed | Model to use |
+| `astuteChat.agentModel` | The chat model | Model for Agent mode |
+| `astuteChat.visionModel` | Smallest with vision | Reads images for models without vision |
+| `astuteChat.numCtx` | `8192` | Context window, capped to the model's limit |
+| `astuteChat.numThread` | `0` (automatic) | CPU threads for a local server |
+| `astuteChat.keepAlive` | `30m` | How long a model stays loaded |
+| `astuteChat.idleTimeoutSeconds` | `600` | Stops if the server sends nothing for this long |
+| `astuteChat.temperature` | `0.25` | Sampling temperature |
+| `astuteChat.thinking` | `true` | Shows reasoning from models that support it |
+| `astuteChat.tools.enabled` | `true` | Lets models use workspace tools |
+| `astuteChat.mcp.servers` | `{}` | MCP servers for Agent |
+| `astuteChat.approvals.allowedCommands` | `[]` | Extra commands that Safe auto can approve |
+| `astuteChat.languageSkills` | `false` | Adds experimental C, C++ and Python guidance |
+| `astuteChat.debugSkills` | `false` | Adds every skill's full text to the prompt |
+
+Server settings apply per machine, so a workspace can't redirect your prompts to another server.
+
+## If it runs slowly
+
+- Check that Ollama is using the GPU: `ollama ps` shows `100% GPU` when it is.
+- Run one model at a time. Two models at once slow each other down, and the chat warns you when this happens.
+- Lower `astuteChat.numThread` if your computer is busy.
+- Use **Astute Chat: Show Logs** to see connection details and errors.
+
+## `@astute` in the Chat view
+
+`@astute` still works, but VS Code has deprecated chat participants. It always runs as Ask, and new features go in the Astute tab.
+
+## Licence
+
+Astute Chat is released under the MIT licence. The Astute Systems and Astute Chat names and logos are not covered by that licence. Bundled software and fonts are listed in `ThirdPartyNotices.txt`.
+
+## Develop
+
+```bash
+npm install
+npm run compile
+npm test
+npm run package
+npm run docs
+```
+
+Copyright (c) 2026 [Astute Systems](https://astutesys.com).

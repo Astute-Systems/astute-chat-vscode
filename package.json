@@ -1,0 +1,358 @@
+{
+  "name": "astute-chat-ollama",
+  "displayName": "Astute Chat (Ollama)",
+  "description": "Private, offline-first AI chat and agent for VS Code, powered by your own Ollama server.",
+  "version": "0.16.0",
+  "publisher": "AstuteSystems",
+  "preview": true,
+  "pricing": "Free",
+  "icon": "images/astute-chat/Astute_Chat_Icon_Extension.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Astute-Systems/astute-chat-vscode.git"
+  },
+  "homepage": "https://astutesys.com",
+  "bugs": {
+    "url": "https://github.com/Astute-Systems/astute-chat-vscode/issues"
+  },
+  "license": "MIT",
+  "galleryBanner": {
+    "color": "#020a14",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.127.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "keywords": [
+    "ollama",
+    "local llm",
+    "offline",
+    "private",
+    "ai",
+    "chat",
+    "agent",
+    "coding assistant",
+    "llama",
+    "qwen",
+    "gemma",
+    "air-gapped",
+    "self-hosted",
+    "astute"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Astute Chat",
+      "properties": {
+        "astuteChat.server.host": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "scope": "machine",
+          "pattern": "^[^\\s/]+$",
+          "patternErrorMessage": "Enter an IP address or hostname, without http:// or a port.",
+          "markdownDescription": "IP address or hostname of the Ollama server. This can only be set per machine, so a workspace cannot redirect your prompts."
+        },
+        "astuteChat.server.port": {
+          "type": "integer",
+          "default": 11434,
+          "minimum": 1,
+          "maximum": 65535,
+          "scope": "machine",
+          "markdownDescription": "Port of the Ollama server."
+        },
+        "astuteChat.server.https": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "markdownDescription": "Connect to the Ollama server over HTTPS. Use this when the server is behind a TLS proxy."
+        },
+        "astuteChat.serverUrl": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDeprecationMessage": "Use `#astuteChat.server.host#` and `#astuteChat.server.port#` instead.",
+          "description": "Deprecated. Base URL of the Ollama server."
+        },
+        "astuteChat.model": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Ollama model to use. Leave empty to use the smallest installed model."
+        },
+        "astuteChat.agentModel": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Model for Agent mode. Leave empty to use `#astuteChat.model#`. If that model can't use tools, Agent picks one that can."
+        },
+        "astuteChat.visionModel": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Model that reads images when the chat model can't. Leave empty to use the smallest installed model with vision."
+        },
+        "astuteChat.temperature": {
+          "type": "number",
+          "default": 0.25,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Sampling temperature for responses."
+        },
+        "astuteChat.numCtx": {
+          "type": "integer",
+          "default": 8192,
+          "minimum": 1024,
+          "maximum": 1048576,
+          "markdownDescription": "Context window in tokens. This is capped to the limit of the selected model. Larger values use more memory."
+        },
+        "astuteChat.numThread": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 1024,
+          "markdownDescription": "CPU threads for a local Ollama server. `0` chooses automatically: two thirds of the cores on CPUs with 12 or more cores, otherwise the Ollama default. Using every core can make large CPUs several times slower."
+        },
+        "astuteChat.keepAlive": {
+          "type": "string",
+          "default": "30m",
+          "markdownDescription": "How long Ollama keeps the model loaded after a response, such as `30m`, `2h` or `0`."
+        },
+        "astuteChat.idleTimeoutSeconds": {
+          "type": "integer",
+          "default": 600,
+          "minimum": 10,
+          "maximum": 7200,
+          "description": "Stop waiting if the server sends nothing for this long."
+        },
+        "astuteChat.thinking": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ask models that support thinking to show their reasoning."
+        },
+        "astuteChat.tools.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Let models that support tools read and search files in trusted workspaces. Tools are read-only."
+        },
+        "astuteChat.mcp.servers": {
+          "type": "object",
+          "default": {},
+          "scope": "machine",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "command": {
+                "type": "string"
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "env": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "command"
+            ]
+          },
+          "markdownDescription": "MCP servers that Agent can use, as `{ \"name\": { \"command\": \"...\", \"args\": [] } }`. These run as programs on your machine, so add only servers you trust. This can only be set per machine, so a workspace can't add a server."
+        },
+        "astuteChat.languageSkills": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Experimental. Add built-in C, C++ and Python guidance when the request, open file or project uses that language. In testing this did not improve results, so it is off by default. A workspace skill named `c`, `cpp` or `python` replaces the built-in one."
+        },
+        "astuteChat.approvals.allowedCommands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "machine",
+          "markdownDescription": "Extra command prefixes that **Safe auto** can approve, such as `npm test`. These commands run project code, so add only ones you trust. Commands that use redirects or substitution still ask."
+        },
+        "astuteChat.debugSkills": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include the full text of every skill in the system prompt."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "astuteChat.openChat",
+        "title": "Open Chat",
+        "category": "Astute Chat"
+      },
+      {
+        "command": "astuteChat.newChat",
+        "title": "New Chat",
+        "category": "Astute Chat",
+        "icon": "$(add)"
+      },
+      {
+        "command": "astuteChat.addToChat",
+        "title": "Add to Astute Chat",
+        "category": "Astute Chat"
+      },
+      {
+        "command": "astuteChat.setServerAddress",
+        "title": "Set Server Address",
+        "category": "Astute Chat",
+        "icon": "$(server)"
+      },
+      {
+        "command": "astuteChat.selectModel",
+        "title": "Select Model",
+        "category": "Astute Chat"
+      },
+      {
+        "command": "astuteChat.checkConnection",
+        "title": "Check Ollama Connection",
+        "category": "Astute Chat"
+      },
+      {
+        "command": "astuteChat.reloadSkills",
+        "title": "Reload Skills",
+        "category": "Astute Chat"
+      },
+      {
+        "command": "astuteChat.showLogs",
+        "title": "Show Logs",
+        "category": "Astute Chat"
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "astute",
+        "name": "astute",
+        "fullName": "Astute Chat",
+        "description": "Ask your Ollama model about this workspace",
+        "isSticky": true,
+        "commands": [
+          {
+            "name": "help",
+            "description": "List the available skills and usage tips."
+          },
+          {
+            "name": "refresh",
+            "description": "Reload the workspace skills from .astute/skills."
+          }
+        ]
+      }
+    ],
+    "colors": [
+      {
+        "id": "astute.brand.accent",
+        "description": "Astute accent colour used for emphasis and active states.",
+        "defaults": {
+          "dark": "#36c8e6",
+          "light": "#0b7fa3",
+          "highContrast": "#55e6f8",
+          "highContrastLight": "#0b7fa3"
+        }
+      },
+      {
+        "id": "astute.brand.accentSoft",
+        "description": "Soft Astute highlight used in subtle border and background treatments.",
+        "defaults": {
+          "dark": "#0d2b36",
+          "light": "#dff5fb",
+          "highContrast": "#0d2b36",
+          "highContrastLight": "#dff5fb"
+        }
+      },
+      {
+        "id": "astute.brand.base",
+        "description": "Dark base tone for Astute surfaces.",
+        "defaults": {
+          "dark": "#000000",
+          "light": "#f4fbfd",
+          "highContrast": "#000000",
+          "highContrastLight": "#f4fbfd"
+        }
+      }
+    ],
+    "viewsContainers": {
+      "secondarySidebar": [
+        {
+          "id": "astuteChat",
+          "title": "Astute",
+          "icon": "icons/astute-tab.svg"
+        }
+      ]
+    },
+    "views": {
+      "astuteChat": [
+        {
+          "type": "webview",
+          "id": "astuteChat.chatView",
+          "name": "Astute",
+          "icon": "icons/astute-tab.svg"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "astuteChat.setServerAddress",
+          "when": "view == astuteChat.chatView",
+          "group": "navigation@2"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "astuteChat.addToChat",
+          "group": "navigation@99"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "astuteChat.addToChat",
+          "when": "false"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc -p . --noEmit && tsc -p webview --noEmit",
+    "build": "node esbuild.js",
+    "compile": "npm run typecheck && npm run build",
+    "watch": "node esbuild.js --watch",
+    "test": "tsc -p tsconfig.test.json && node --test out-test/test/*.test.js",
+    "vscode:prepublish": "npm run compile",
+    "package": "vsce package --no-dependencies",
+    "docs": "node tools/build-docs.js"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^20.14.12",
+    "@types/vscode": "~1.125.0",
+    "esbuild": "^0.28.2",
+    "markdown-it": "^14.1.0",
+    "typescript": "^5.5.4"
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Workspace skills and file tools are disabled until the workspace is trusted."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "Skills and file tools need a local or remote file system."
+    }
+  }
+}

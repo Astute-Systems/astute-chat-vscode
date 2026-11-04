@@ -1,0 +1,4 @@
+{
+    "sarif-viewer.connectToGithubCodeScanning": "off",
+    "github.copilot.chat.codeGeneration.useInstructionFiles": true
+}
