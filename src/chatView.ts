@@ -458,6 +458,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  /** The newest reply in this chat. */
+  get lastReply(): TranscriptEntry | undefined {
+    return this.transcript.filter((entry) => entry.role === "assistant").at(-1);
+  }
+
   /** Replies that can still be undone, oldest first. */
   get undoIds(): number[] {
     return [...this.journals.keys()];

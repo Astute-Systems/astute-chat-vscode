@@ -7,7 +7,7 @@ import { SUMMARY_PROMPT, summarySection } from "./chatSummary";
 import { chooseToolModel, EngineEvents, EngineResult, resolveModel, runChat } from "./chatEngine";
 import { hostDescription } from "./hostInfo";
 import { detectLanguages, LANGUAGE_SKILLS } from "./languageSkills";
-import { ChatMode, MODES } from "./modes";
+import { ChatMode, MCP_RULE, MODES } from "./modes";
 import { getChatSettings, getServerAddress, saveModel } from "./config";
 import { ChatMessage, ModelDetails, ModelInfo, OllamaClient, OllamaError } from "./ollamaClient";
 import { describeLocation, findRepo } from "./repoInfo";
@@ -16,6 +16,7 @@ import { buildSkillSystemPrompt, findSkills, matchSkill, Skill } from "./skillLo
 import { autoThreadCount, countPhysicalCores } from "./threads";
 import type { TerminalLog } from "./terminalLog";
 import type { McpManager } from "./mcpManager";
+import { MAX_TOOLS } from "./mcpPool";
 import { ConfirmChange, createToolRunner, ImageReader } from "./tools";
 
 const READ_IMAGE_PROMPT = "Describe this image in detail. Transcribe all visible text, code and error messages exactly, character for character.";
@@ -325,6 +326,12 @@ export class ChatService {
     const mcpTools = useTools && mode.canChange && this.mcp ? await this.mcp.definitions() : undefined;
     for (const server of mcpTools?.failed ?? []) {
       request.events.onNotice(`MCP server ${server} didn't start. Astute Chat: Show Logs has the details.`);
+    }
+    if (mcpTools?.skipped.length) {
+      request.events.onNotice(`Only ${MAX_TOOLS} MCP tools can be offered to a model, so ${mcpTools.skipped.length} were left out. Astute Chat: Show Logs lists them.`);
+    }
+    if (mcpTools?.tools.length) {
+      sections.push(MCP_RULE);
     }
     const contextLimit = Math.min(settings.numCtx, details.contextLength ?? settings.numCtx);
     this.log.info(`Chat: mode=${mode.id} model=${model} num_ctx=${contextLimit} tools=${useTools} skill=${skill?.name ?? "none"} folder=${path.basename(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "")}`);

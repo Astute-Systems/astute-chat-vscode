@@ -113,7 +113,7 @@ Agent can use tools from [MCP](https://modelcontextprotocol.io) servers, which c
 }
 ```
 
-Servers run as programs on your machine, so add only ones you trust. They come only from user settings, so a workspace can't start one. Each MCP tool call asks first, at every level except full **Auto**, and Ask and Plan don't get MCP tools. Each tool uses up context, so only the first 20 tools are offered. Local servers that use stdio are supported, but HTTP servers aren't.
+Servers run as programs on your machine, so add only ones you trust. They come only from user settings, so a workspace can't start one. Each MCP tool call asks first, at every level except full **Auto**, and Ask and Plan don't get MCP tools. Each tool uses up context, so at most 20 tools are offered, shared evenly between your servers, and the chat tells you if any were left out. A server that fails to start is tried again on a later request, and one that stops is restarted. Local servers that use stdio are supported, but HTTP servers aren't.
 
 ## Chat history
 

@@ -4,3 +4,4 @@ out/
 *.vsix
 out-test/
 media/webview.js
+.env

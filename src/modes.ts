@@ -1,5 +1,8 @@
 import { DUMMY_FILE_RULE } from "./contentGuardRule";
 
+/** Without this, models rewrote paths for MCP tools as workspace paths, and gave up when they were refused. */
+export const MCP_RULE = "Tools named mcp_ belong to external servers and aren't limited to the workspace. Pass paths and other values to them exactly as the user wrote them, including absolute paths. If one refuses a value, read the error, correct the value and try again. Then answer using what the tool returned.";
+
 export type ChatMode = "ask" | "plan" | "agent";
 
 export interface ModeDefinition {

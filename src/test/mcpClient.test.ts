@@ -1,6 +1,6 @@
 import * as assert from "node:assert/strict";
 import { test } from "node:test";
-import { McpConnection, resultText, toolName } from "../mcpClient";
+import { McpConnection, resultText, spawnPlan, toolName } from "../mcpClient";
 
 /** A small MCP server, run as a real child process. */
 const SERVER = `
@@ -80,4 +80,13 @@ test("reads every kind of result", () => {
   assert.equal(resultText({ content: [{ type: "resource_link", uri: "file:///a" }] }), "[Link file:///a]");
   assert.match(resultText({ content: [{ type: "image", data: "x" }] }), /image content isn't shown/);
   assert.equal(resultText({}), "(no output)");
+});
+
+test("starts commands directly except for scripts on Windows", () => {
+  assert.deepEqual(spawnPlan({ command: "npx", args: ["-y", "a b"] }, "linux"), { command: "npx", args: ["-y", "a b"], verbatim: false });
+  assert.equal(spawnPlan({ command: "C:\\node.exe", args: ["a"] }, "win32").command, "C:\\node.exe");
+  const plan = spawnPlan({ command: "npx", args: ["-y", "a&calc"] }, "win32");
+  assert.ok(plan.verbatim);
+  assert.deepEqual(plan.args.slice(0, 3), ["/d", "/s", "/c"]);
+  assert.equal(plan.args[3], '"npx ^"-y^" ^"a^&calc^""');
 });

@@ -57,6 +57,21 @@ export function resultText(result: unknown): string {
   return body.isError ? `The tool reported an error:\n${text}` : text;
 }
 
+/**
+ * Windows can't start npx.cmd or other scripts directly, so they go through cmd.exe.
+ * The arguments are quoted here because they mustn't be read as shell syntax.
+ */
+export function spawnPlan(config: McpServerConfig, platform: NodeJS.Platform = process.platform): { command: string; args: string[]; verbatim: boolean } {
+  const args = config.args ?? [];
+  if (platform !== "win32" || /\.(exe|com)$/i.test(config.command)) {
+    return { command: config.command, args, verbatim: false };
+  }
+  const meta = /([()\][%!^"`<>&|;, *?])/g;
+  const quote = (arg: string): string => `"${arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, "$1$1")}"`.replace(meta, "^$1");
+  const line = [config.command.replace(meta, "^$1"), ...args.map(quote)].join(" ");
+  return { command: process.env.ComSpec || "cmd.exe", args: ["/d", "/s", "/c", `"${line}"`], verbatim: true };
+}
+
 /** One running MCP server, connected over stdio with newline-delimited JSON-RPC. */
 export class McpConnection {
   private readonly process: ChildProcessWithoutNullStreams;
@@ -70,7 +85,8 @@ export class McpConnection {
     cwd: string | undefined,
     private readonly onLog: (text: string) => void = () => undefined,
   ) {
-    this.process = spawn(config.command, config.args ?? [], { cwd, env: { ...process.env, ...config.env }, stdio: "pipe" });
+    const plan = spawnPlan(config);
+    this.process = spawn(plan.command, plan.args, { cwd, env: { ...process.env, ...config.env }, stdio: "pipe", windowsVerbatimArguments: plan.verbatim });
     this.process.stdout.setEncoding("utf8");
     this.process.stdout.on("data", (chunk: string) => this.receive(chunk));
     this.process.stderr.setEncoding("utf8");
@@ -78,6 +94,10 @@ export class McpConnection {
     this.process.stdin.on("error", () => undefined);
     this.process.on("error", (error) => this.fail(error));
     this.process.on("exit", () => this.fail(new Error("The MCP server stopped.")));
+  }
+
+  get running(): boolean {
+    return !this.exited;
   }
 
   private fail(error: Error): void {
