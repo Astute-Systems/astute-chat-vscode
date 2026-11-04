@@ -394,3 +394,19 @@ test("tells a model that claims its tools are broken to try them, once", async (
   assert.equal(round, 2);
   assert.match(mock.requests.filter((r) => r.path === "/api/chat")[1].body.messages.at(-1).content, /tools do work/);
 });
+
+test("sends an edit that added errors back to be fixed", async (t) => {
+  let round = 0;
+  const mock = await startMock((_req, res) => {
+    round += 1;
+    const call = round === 1 || round === 3;
+    res.end(line({ message: { content: call ? "" : "Done.", tool_calls: call ? [{ function: { name: "edit_file", arguments: {} } }] : undefined }, done: true, eval_count: 1 }));
+  });
+  t.after(() => mock.close());
+  const events = recorder();
+  const results = ["Edited a.ts.\nNew errors after this change:\nLine 2: bad type", "Edited a.ts.\nNo new errors in this file."];
+  await runChat({ ...retryRequest(mock.url, events, { definitions: [], run: async () => results.shift() as string }), fixFailures: "Fix it." });
+  assert.equal(round, 4);
+  assert.match(mock.requests.filter((r) => r.path === "/api/chat")[2].body.messages.at(-1).content, /Line 2: bad type/);
+  assert.deepEqual(events.notices, []);
+});

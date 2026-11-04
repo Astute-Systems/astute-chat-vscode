@@ -159,6 +159,12 @@ If a command fails in Agent mode, the model is sent back to fix it, up to three 
 
 Long chats are summarised automatically, using your chat model, so earlier decisions survive the context limit. This adds a short pause when it happens.
 
+## Checking its work
+
+After each file change, Agent checks the language server for new errors in that file. If there are any, it's told to fix them, up to three times, and the chat says so if they remain. Agent can also run your project's tests, using `npm test`, `pytest`, `cargo test`, `go test`, `ctest` or `make test`. The test command comes from your project, and it needs your approval like any other command.
+
+In every mode, models can ask the language server where a function is defined and where it's used. This needs a language server for that file type, and otherwise they use text search.
+
 ## See and undo what Agent did
 
 Approval cards for file changes have a **View diff** button, which opens VS Code's diff view. After each Agent reply, a short report lists the files created and edited, and how many commands ran or failed. It comes from what the tools really did, not from the model's reply.

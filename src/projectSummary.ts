@@ -146,3 +146,54 @@ export function summariseProject(root: string): string {
   }
   return `Project summary, worked out from its files. Read these entry points first when you need to understand the code.\n${lines.join("\n")}`.slice(0, MAX_SUMMARY_CHARS);
 }
+
+/**
+ * The command that runs this project's tests. It comes from the project, not the
+ * model, and the model can only add a name that testTarget has checked.
+ */
+export function findTestCommand(root: string, target?: string): { command: string } | { error: string } {
+  if (target !== undefined && !testTarget(target)) {
+    return { error: "A test name can only use letters, numbers and . _ / : -" };
+  }
+  const named = (prefix: string, join = " "): { command: string } => ({ command: target ? `${prefix}${join}${target}` : prefix });
+  const manifest = read(root, "package.json");
+  if (manifest) {
+    try {
+      const script = (JSON.parse(manifest) as { scripts?: Record<string, unknown> }).scripts?.test;
+      if (typeof script === "string" && !/no test specified/i.test(script)) {
+        return named("npm test", " -- ");
+      }
+    } catch {
+      // A broken manifest can't run tests, so the other project types are tried.
+    }
+  }
+  if (exists(root, "pytest.ini") || exists(root, "tests") || /\[tool\.pytest/.test(read(root, "pyproject.toml") ?? "")) {
+    return named("python3 -m pytest");
+  }
+  if (exists(root, "Cargo.toml")) {
+    return named("cargo test");
+  }
+  if (exists(root, "go.mod")) {
+    return { command: `go test ${target ?? "./..."}` };
+  }
+  if (exists(root, "build/CTestTestfile.cmake")) {
+    return named("ctest --test-dir build --output-on-failure", " -R ");
+  }
+  if (/^test:/m.test(read(root, "Makefile") ?? "")) {
+    return target ? { error: "This project's tests run with make test, which can't choose one test." } : { command: "make test" };
+  }
+  return { error: "No test command was found. Use run_command if you know it." };
+}
+
+function testTarget(target: string): boolean {
+  return /^[\w./:-]{1,120}$/.test(target) && !target.startsWith("-");
+}
+
+/** The failing lines, then the end of the output, where runners print their summary. */
+export function summariseTestOutput(output: string, limit = 4000): string {
+  if (output.length <= limit) {
+    return output;
+  }
+  const failures = output.split("\n").filter((line) => /\b(FAIL(ED)?|ERROR|not ok|failed|Error:|AssertionError|panicked)\b/.test(line)).slice(0, 30).join("\n").slice(0, limit / 2);
+  return `${failures ? `Failures:\n${failures}\n\n` : ""}End of the output:\n${output.slice(-(limit - failures.length))}`;
+}

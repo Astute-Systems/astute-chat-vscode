@@ -27,6 +27,7 @@ First Marketplace release.
 - Approval cards with Ask first, Auto-edit and Safe auto levels, plus a full Auto toggle
 - Checks that refuse dummy files, build outputs and placeholder code
 - Failed commands are sent back to be fixed, up to three times
+- Each edit is checked for new errors, a tool runs your project's tests, and models can find definitions and references
 - A diff view for proposed changes, a report of what really changed, and Undo
 
 ### Context

@@ -7,6 +7,16 @@ function tool(name: string, description: string, properties: Record<string, unkn
 }
 
 export const READ_TOOLS: ToolDefinition[] = [
+  tool(
+    "code_nav",
+    "Use the language server to find where a symbol is defined, or everywhere it's used. More exact than text search.",
+    {
+      action: { type: "string", enum: ["definition", "references"], description: "What to find" },
+      symbol: { type: "string", description: "Function, class or variable name" },
+      path: { type: "string", description: "Optional file that uses the symbol, relative to the workspace root" },
+    },
+    ["action", "symbol"],
+  ),
   tool("list_files", "List workspace files that match a glob pattern.", { pattern: { type: "string", description: "Glob pattern, for example src/**/*.ts" } }, ["pattern"]),
   tool(
     "read_file",
@@ -50,6 +60,12 @@ export const READ_TOOLS: ToolDefinition[] = [
 
 export const CHANGE_TOOLS: ToolDefinition[] = [
   tool(
+    "run_tests",
+    "Run this project's tests, using the command the project defines. Run them after a fix to check it. The user may need to approve this.",
+    { target: { type: "string", description: "Optional test file or test name" } },
+    [],
+  ),
+  tool(
     "write_file",
     "Create a file, or replace all of an existing file. The user must approve this.",
     {
@@ -91,6 +107,22 @@ export function toolsForMode(mode: ChatMode): ToolDefinition[] {
 /** Checked again when a tool runs, because a model can call tools it was not offered. */
 export function isToolAllowed(mode: ChatMode, name: string): boolean {
   return toolsForMode(mode).some((definition) => definition.function.name === name);
+}
+
+export const NEW_ERRORS = "New errors after this change:";
+
+/** Problems that weren't there before. Line numbers move when code is edited, so they aren't compared. */
+export function newProblems(before: readonly string[], after: readonly string[]): string[] {
+  const remaining = new Map<string, number>();
+  const key = (problem: string): string => problem.replace(/^Line \d+: /, "");
+  for (const problem of before) {
+    remaining.set(key(problem), (remaining.get(key(problem)) ?? 0) + 1);
+  }
+  return after.filter((problem) => {
+    const left = remaining.get(key(problem)) ?? 0;
+    remaining.set(key(problem), left - 1);
+    return left <= 0;
+  });
 }
 
 /** Lines around each match, with : on a match and - on context, as grep shows them. */

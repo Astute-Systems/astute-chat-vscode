@@ -12,7 +12,8 @@ import type { ToolCall, ToolDefinition } from "./ollamaClient";
 import { isInside, isSensitivePath } from "./pathGuard";
 import type { Skill } from "./skillLoader";
 import { runShell } from "./shell";
-import { isToolAllowed, matchesIn, replaceUnique, toolsForMode } from "./toolDefinitions";
+import { findTestCommand, summariseTestOutput } from "./projectSummary";
+import { isToolAllowed, matchesIn, NEW_ERRORS, newProblems, replaceUnique, toolsForMode } from "./toolDefinitions";
 import { webFetch, webSearch, WebSettings, webToolDefinitions } from "./webTools";
 
 /** Returns true only when the change is approved. */
@@ -28,6 +29,14 @@ const MAX_SEARCH_FILE_BYTES = 512 * 1024;
 const MAX_SEARCH_FILES = 400;
 const MAX_MATCHES = 50;
 const MAX_SEARCH_CONTEXT = 10;
+const TEST_TIMEOUT_MS = 300000;
+/** Language servers can take a moment, and may send nothing if a file is unchanged. */
+const PROBLEM_WAIT_MS = 2000;
+const PROBLEM_SETTLE_MS = 300;
+const MAX_NEW_PROBLEMS = 10;
+const MAX_LOCATIONS = 30;
+const NAV_ATTEMPTS = 5;
+const NAV_RETRY_MS = 2000;
 const MAX_PROBLEMS = 40;
 const MAX_INDEXED_FILES = 1500;
 const COMMAND_TIMEOUT_MS = 120000;
@@ -266,6 +275,144 @@ async function replaceDocument(uri: vscode.Uri, content: string): Promise<boolea
   return (await vscode.workspace.applyEdit(edit)) && (await document.save());
 }
 
+/**
+ * TypeScript only fully checks files in a tab, and gives shallow answers or no
+ * errors for the rest. A preview tab reuses one slot, and focus stays where it is.
+ */
+async function openForLanguageServer(uri: vscode.Uri): Promise<void> {
+  await vscode.window.showTextDocument(uri, { preview: true, preserveFocus: true }).then(undefined, () => undefined);
+}
+
+function errorsIn(uri: vscode.Uri): string[] {
+  return vscode.languages
+    .getDiagnostics(uri)
+    .filter((item) => item.severity === vscode.DiagnosticSeverity.Error)
+    .map((item) => `Line ${item.range.start.line + 1}: ${item.message.split("\n")[0]}`);
+}
+
+/** Waits for the language server to look at a changed file. False means it said nothing. */
+function diagnosticsUpdated(uri: vscode.Uri): Promise<boolean> {
+  return new Promise((resolve) => {
+    const finish = (updated: boolean): void => {
+      clearTimeout(timer);
+      subscription.dispose();
+      resolve(updated);
+    };
+    const timer = setTimeout(() => finish(false), PROBLEM_WAIT_MS);
+    const subscription = vscode.languages.onDidChangeDiagnostics((event) => {
+      if (event.uris.some((changed) => changed.toString() === uri.toString())) {
+        setTimeout(() => finish(true), PROBLEM_SETTLE_MS);
+      }
+    });
+  });
+}
+
+/** Comes from the language server, so a model can't report success on code that doesn't compile. */
+async function checkAfterEdit(uri: vscode.Uri, before: string[], updated: Promise<boolean>): Promise<string> {
+  await openForLanguageServer(uri);
+  if (!(await updated)) {
+    return "";
+  }
+  const added = newProblems(before, errorsIn(uri));
+  return added.length ? `\n${NEW_ERRORS}\n${added.slice(0, MAX_NEW_PROBLEMS).join("\n")}` : "\nNo new errors in this file.";
+}
+
+async function runTests(target: string, confirm: ConfirmChange, signal?: AbortSignal, journal?: ChangeJournal): Promise<string> {
+  const root = folders()[0]?.uri.fsPath;
+  if (!root) {
+    return "An open workspace is required.";
+  }
+  const found = findTestCommand(root, target || undefined);
+  if ("error" in found) {
+    return found.error;
+  }
+  if (!(await confirm({ kind: "command", title: "Run the tests?", detail: preview(found.command), command: found.command }))) {
+    return "The user denied this command.";
+  }
+  const result = await runShell(found.command, root, TEST_TIMEOUT_MS, signal);
+  journal?.recordCommand(result.exitCode === 0);
+  const status = result.stopped ? "Stopped by the user" : result.timedOut ? "Timed out" : `Exit code ${String(result.exitCode)}`;
+  return `${status}\n${summariseTestOutput(result.output) || "(no output)"}`;
+}
+
+type NavLocation = vscode.Location | vscode.LocationLink;
+
+/** Finds where to ask the language server from: a use in a file, or the workspace's symbol index. */
+async function symbolPosition(symbol: string, requested: string, preferLast: boolean): Promise<{ uri: vscode.Uri; position: vscode.Position } | string> {
+  const word = new RegExp(`\\b${symbol.replace(/[.*+?^\${}()|[\]\\]/g, "\\$&")}\\b`);
+  const inDocument = async (uri: vscode.Uri, from = 0, last = false): Promise<{ uri: vscode.Uri; position: vscode.Position } | undefined> => {
+    const document = await vscode.workspace.openTextDocument(uri);
+    let found: { uri: vscode.Uri; position: vscode.Position } | undefined;
+    for (let line = from; line < document.lineCount; line++) {
+      const index = document.lineAt(line).text.search(word);
+      if (index >= 0) {
+        found = { uri, position: new vscode.Position(line, index) };
+        if (!last) {
+          break;
+        }
+      }
+    }
+    return found;
+  };
+  if (requested) {
+    const file = await findFile(requested);
+    if (typeof file === "string") {
+      return file;
+    }
+    if (isSensitivePath(file.real)) {
+      return "That file may contain secrets, so it can't be read.";
+    }
+    // The first mention is often an import, whose definition is the import itself.
+    return (await inDocument(vscode.Uri.file(file.real), 0, preferLast)) ?? `${symbol} isn't in ${file.shown}.`;
+  }
+  const symbols = (await vscode.commands.executeCommand<vscode.SymbolInformation[]>("vscode.executeWorkspaceSymbolProvider", symbol)) ?? [];
+  const exact = symbols.find((item) => item.name === symbol && !isSensitivePath(item.location.uri.fsPath));
+  return exact ? ((await inDocument(exact.location.uri, exact.location.range.start.line)) ?? `${symbol} wasn't found.`) : `${symbol} wasn't found.`;
+}
+
+async function describeLocations(locations: NavLocation[]): Promise<string[]> {
+  const lines: string[] = [];
+  for (const location of locations.slice(0, MAX_LOCATIONS)) {
+    const uri = "targetUri" in location ? location.targetUri : location.uri;
+    const range = "targetUri" in location ? (location.targetSelectionRange ?? location.targetRange) : location.range;
+    if (isSensitivePath(uri.fsPath)) {
+      continue;
+    }
+    const text = await vscode.workspace.openTextDocument(uri).then((document) => document.lineAt(range.start.line).text.trim().slice(0, 160), () => "");
+    lines.push(`${display(uri)}:${range.start.line + 1}: ${text}`);
+  }
+  return lines;
+}
+
+async function codeNav(action: string, symbol: string, requested: string): Promise<string> {
+  if (!symbol) {
+    return "Give a symbol to look up.";
+  }
+  const command = action === "references" ? "vscode.executeReferenceProvider" : "vscode.executeDefinitionProvider";
+  let missing = "";
+  // A language server that's still starting gives empty answers, not errors.
+  for (let attempt = 0; attempt < NAV_ATTEMPTS; attempt++) {
+    const found = await symbolPosition(symbol, requested, action !== "references");
+    if (typeof found === "string") {
+      missing = found;
+    } else {
+      await openForLanguageServer(found.uri);
+      const locations = (await vscode.commands.executeCommand<NavLocation[]>(command, found.uri, found.position)) ?? [];
+      const lines = await describeLocations(locations);
+      // Until a project has loaded, TypeScript only follows a name as far as its import.
+      const onlyImports = action !== "references" && lines.length > 0 && lines.every((line) => /:\d+: (import|from|export \{)/.test(line));
+      if (lines.length && (!onlyImports || attempt === NAV_ATTEMPTS - 1)) {
+        return clip(lines.join("\n"));
+      }
+      missing = `The language server found no ${action === "references" ? "references" : "definition"} for ${symbol}.`;
+    }
+    if (attempt < NAV_ATTEMPTS - 1) {
+      await new Promise((resolve) => setTimeout(resolve, NAV_RETRY_MS));
+    }
+  }
+  return `${missing} No language server may be running for this file, so try search_text.`;
+}
+
 async function writeFile(requested: string, content: string, confirm: ConfirmChange, journal?: ChangeJournal): Promise<string> {
   const target = await writeTarget(requested);
   if (typeof target === "string") {
@@ -280,17 +427,19 @@ async function writeFile(requested: string, content: string, confirm: ConfirmCha
   if (!(await confirm({ kind: "edit", title: `${present ? "Replace" : "Create"} ${target.shown}?`, detail: preview(content), path: target.shown, existingSize: before?.length, newSize: content.length, file: target.uri.fsPath, proposed: content }))) {
     return "The user denied this change.";
   }
+  const errorsBefore = errorsIn(target.uri);
+  const updated = diagnosticsUpdated(target.uri);
   if (present) {
     if (!(await replaceDocument(target.uri, content))) {
       return `Could not save ${target.shown}.`;
     }
     journal?.recordFile(target.uri.fsPath, target.shown, before, content);
-    return `Replaced ${target.shown}.`;
+    return `Replaced ${target.shown}.${await checkAfterEdit(target.uri, errorsBefore, updated)}`;
   }
   await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(target.uri.fsPath)));
   await vscode.workspace.fs.writeFile(target.uri, Buffer.from(content, "utf8"));
   journal?.recordFile(target.uri.fsPath, target.shown, null, content);
-  return `Created ${target.shown}.`;
+  return `Created ${target.shown}.${await checkAfterEdit(target.uri, errorsBefore, updated)}`;
 }
 
 async function editFile(requested: string, oldText: string, newText: string, confirm: ConfirmChange, journal?: ChangeJournal): Promise<string> {
@@ -314,11 +463,13 @@ async function editFile(requested: string, oldText: string, newText: string, con
     return "The user denied this change.";
   }
   const before = document.getText();
+  const errorsBefore = errorsIn(target.uri);
+  const updated = diagnosticsUpdated(target.uri);
   if (!(await replaceDocument(target.uri, result.text))) {
     return `Could not save ${target.shown}.`;
   }
   journal?.recordFile(target.uri.fsPath, target.shown, before, result.text);
-  return `Edited ${target.shown}.`;
+  return `Edited ${target.shown}.${await checkAfterEdit(target.uri, errorsBefore, updated)}`;
 }
 
 /** Catches commands such as `touch libfoo.a`, which look like a build but produce nothing. */
@@ -458,6 +609,10 @@ export function createToolRunner(mode: ChatMode, options: ToolOptions = {}): Too
             return await editFile(text("path"), text("old_text"), text("new_text"), confirm, journal);
           case "run_command":
             return await runCommand(text("command"), confirm, signal, journal);
+          case "run_tests":
+            return await runTests(text("target"), confirm, signal, journal);
+          case "code_nav":
+            return await codeNav(text("action"), text("symbol"), text("path"));
           default:
             return `Unknown tool: ${name}`;
         }

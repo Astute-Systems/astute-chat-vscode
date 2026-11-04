@@ -1,3 +1,4 @@
+import { NEW_ERRORS } from "./toolDefinitions";
 import { ChatMessage, ChatUsage, ModelInfo, OllamaClient, OllamaError, ToolCall, ToolDefinition } from "./ollamaClient";
 import { TokenMeter } from "./tokenMeter";
 
@@ -193,6 +194,7 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
   let retried = false;
   let failedOutput: string | undefined;
   let askedForAnswer = false;
+  let failedEdit = false;
   let pushedBack = false;
   let fixAttempts = 0;
 
@@ -278,7 +280,7 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
           }
           continue;
         }
-        events.onNotice(`The last command still failed when this reply ended. It printed: ${failedOutput}`);
+        events.onNotice(`The last ${failedEdit ? "edit" : "command"} still failed when this reply ended. It printed: ${failedOutput}`);
       }
 
       // Thinking can use up the whole reply, which leaves the user with a blank answer.
@@ -308,8 +310,18 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
         if (result.startsWith(REFUSED)) {
           events.onNotice(result);
         }
-        if (call.function.name === "run_command") {
+        if (call.function.name === "run_command" || call.function.name === "run_tests") {
           failedOutput = commandFailed(result) ? failureOutput(result) : undefined;
+          failedEdit = false;
+        } else if (call.function.name === "write_file" || call.function.name === "edit_file") {
+          const errors = result.indexOf(NEW_ERRORS);
+          if (errors >= 0) {
+            failedOutput = result.slice(errors);
+            failedEdit = true;
+          } else if (failedEdit) {
+            failedOutput = undefined;
+            failedEdit = false;
+          }
         }
         transcript.push({ role: "tool", tool_name: call.function.name, content: result });
       }

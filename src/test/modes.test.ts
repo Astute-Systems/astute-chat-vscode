@@ -2,7 +2,7 @@ import * as assert from "node:assert/strict";
 import { test } from "node:test";
 import { isChatMode, MODES } from "../modes";
 import { findSkills, parseSlash } from "../skillLoader";
-import { CHANGE_TOOLS, isToolAllowed, matchesIn, READ_TOOLS, replaceUnique, toolsForMode } from "../toolDefinitions";
+import { CHANGE_TOOLS, isToolAllowed, matchesIn, newProblems, READ_TOOLS, replaceUnique, toolsForMode } from "../toolDefinitions";
 
 const names = (mode: "ask" | "plan" | "agent"): string[] => toolsForMode(mode).map((tool) => tool.function.name);
 const changing = CHANGE_TOOLS.map((tool) => tool.function.name);
@@ -51,4 +51,17 @@ test("search shows the code around each match", () => {
   assert.deepEqual(matchesIn("a.ts", text, "find", 2, 1), ["a.ts-1- one", "a.ts-2- two", "a.ts:3:   find me", "a.ts-4- four", "a.ts-5- five"], "the limit counts matches");
   const near = ["a", "x", "b", "x", "c"].join("\n");
   assert.equal(matchesIn("f", near, "x", 1, 50).length, 5, "overlapping context isn't repeated");
+});
+
+test("only reports problems an edit added", () => {
+  const before = ["Line 3: old error", "Line 9: same text"];
+  assert.deepEqual(newProblems(before, ["Line 5: old error", "Line 12: same text"]), [], "moved lines aren't new");
+  assert.deepEqual(newProblems(before, ["Line 3: old error", "Line 4: new error"]), ["Line 4: new error"]);
+  assert.deepEqual(newProblems(["Line 1: dup"], ["Line 1: dup", "Line 2: dup"]), ["Line 2: dup"], "a second copy is new");
+  assert.deepEqual(newProblems(before, []), []);
+});
+
+test("run_tests can change things, and code_nav can't", () => {
+  assert.ok(!isToolAllowed("ask", "run_tests") && !isToolAllowed("plan", "run_tests") && isToolAllowed("agent", "run_tests"));
+  assert.ok(isToolAllowed("ask", "code_nav") && isToolAllowed("plan", "code_nav") && isToolAllowed("agent", "code_nav"));
 });

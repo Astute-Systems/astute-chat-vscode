@@ -59,6 +59,7 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <a href="#chat-history">Chat history</a>
 <a href="#finding-code">Finding code</a>
 <a href="#errors-and-terminal-output">Errors and terminal output</a>
+<a href="#checking-its-work">Checking its work</a>
 <a href="#see-and-undo-what-agent-did">See and undo what Agent did</a>
 <a href="#stop-a-response">Stop a response</a>
 <a href="#set-up">Set up</a>
@@ -218,6 +219,9 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <p>Models can read VS Code's Problems panel, and your recent terminal commands with their output, so you can say &quot;fix that error&quot;. Terminal reading needs VS Code shell integration, which is on by default for bash, zsh, fish and PowerShell. Terminal output goes to the model only when it asks for it, so take care if your commands print secrets.</p>
 <p>If a command fails in Agent mode, the model is sent back to fix it, up to three times. If it's still failing at the end, the chat says so.</p>
 <p>Long chats are summarised automatically, using your chat model, so earlier decisions survive the context limit. This adds a short pause when it happens.</p>
+<h2 id="checking-its-work">Checking its work</h2>
+<p>After each file change, Agent checks the language server for new errors in that file. If there are any, it's told to fix them, up to three times, and the chat says so if they remain. Agent can also run your project's tests, using <code>npm test</code>, <code>pytest</code>, <code>cargo test</code>, <code>go test</code>, <code>ctest</code> or <code>make test</code>. The test command comes from your project, and it needs your approval like any other command.</p>
+<p>In every mode, models can ask the language server where a function is defined and where it's used. This needs a language server for that file type, and otherwise they use text search.</p>
 <h2 id="see-and-undo-what-agent-did">See and undo what Agent did</h2>
 <p>Approval cards for file changes have a <strong>View diff</strong> button, which opens VS Code's diff view. After each Agent reply, a short report lists the files created and edited, and how many commands ran or failed. It comes from what the tools really did, not from the model's reply.</p>
 <p><strong>Undo file changes</strong> restores the files Agent wrote in that reply. It leaves alone any file that has changed since, so it can't overwrite newer work. It can't undo shell commands, and it's available until you start a new chat or reload VS Code.</p>
