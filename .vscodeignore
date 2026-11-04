@@ -4,6 +4,7 @@
 !LICENSE
 !out/extension.js
 !media/**
+!themes/**
 !images/astute-chat/Astute_Chat_Icon_Extension.png
 !icons/astute-tab.svg
 !CHANGELOG.md

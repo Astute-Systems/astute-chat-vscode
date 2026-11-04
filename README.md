@@ -19,6 +19,7 @@ Private AI chat and a coding agent for VS Code, running on your own [Ollama](htt
 - **Review mode**, which keeps Agent's work on a branch to merge or discard
 - **MCP tools** from local servers you add
 - **Optional web research**, off by default
+- **Optional Astute Vector look** for all of VS Code, off by default
 - **File links** that open workspace files named in the chat, at the right line
 - **Retro vector display** with blue chat text and white Courier code, on every VS Code theme
 
@@ -177,6 +178,27 @@ The extension bundles everything it needs, including its fonts. To set up an air
 2. Copy the VSIX and the Ollama models folder to the offline machine. The folder is `~/.ollama/models`, or `/usr/share/ollama/.ollama/models` for the Linux service.
 3. Run `code --install-extension` on the VSIX.
 
+## Astute Vector look
+
+To match the rest of VS Code to the chat tab, turn on `astuteChat.vectorTheme.enabled`. This changes these user settings:
+
+- **Colours:** the **Astute Vector** colour theme covers the editor, syntax highlighting, terminal, Explorer and the rest of the window. You can also pick it by itself in **Preferences: Color Theme**.
+- **Terminal font:** Astute Vector Mono at size 13, a monospaced font made from the chat tab's vector font.
+- **Code font:** the editor, debug console and source control message box use Courier Prime, the same font as code in the chat tab.
+
+Turning it off restores your previous theme, fonts and terminal size, apart from any you changed while it was on. If you uninstall Astute Chat, turn it off first.
+
+VS Code can't use fonts from an extension outside its own tabs, so both fonts must be installed on your computer:
+
+- **Astute Vector Mono:** run **Astute Chat: Install Astute Vector Mono Font**. On Linux and macOS this copies two files to your user font folder after you confirm, and on Windows it opens the folder so you can install them. It can't install on a remote computer, so run it in a local window.
+- **Courier Prime:** install it from [Google Fonts](https://fonts.google.com/specimen/Courier+Prime).
+
+Until then, VS Code uses Courier New or your system's monospace font. To remove the terminal font later, delete `~/.local/share/fonts/astute-vector-mono` on Linux, or the `AstuteVectorMono` files in `~/Library/Fonts` on macOS.
+
+Astute Vector Mono has English and Western European letters, but it doesn't cover every language or symbol, and VS Code uses another font for anything missing. VS Code draws box and block characters itself.
+
+Two things can't match the chat tab, because VS Code has no setting for them. The Explorer, tabs, menus and status bar keep VS Code's own font, in the theme's colours. Text can't glow.
+
 ## Commands in chat
 
 | Command | Action |
@@ -229,6 +251,7 @@ Astute Chat follows an `AGENTS.md` file in your workspace, the same format many 
 | `astuteChat.thinking` | `true` | Shows reasoning from models that support it |
 | `astuteChat.tools.enabled` | `true` | Lets models use workspace tools |
 | `astuteChat.mcp.servers` | `{}` | MCP servers for Agent |
+| `astuteChat.vectorTheme.enabled` | `false` | Applies the Astute Vector look to all of VS Code |
 | `astuteChat.web.enabled` | `false` | Lets models read web pages |
 | `astuteChat.web.searchUrl` | Empty | SearXNG server for web search |
 | `astuteChat.web.allowPrivateAddresses` | `false` | Lets models open addresses on your private network |

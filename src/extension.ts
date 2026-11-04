@@ -1,3 +1,7 @@
+import * as os from "os";
+import * as path from "path";
+import { fontFolder, fontsInstalled, installFonts, refreshFontCache } from "./fontInstall";
+import { SavedSettings, syncVectorTheme, VectorThemeStore } from "./vectorTheme";
 import * as vscode from "vscode";
 import { ChatService } from "./chatService";
 import { ChatViewProvider } from "./chatView";
@@ -13,6 +17,49 @@ export interface AstuteChatApi {
   service: ChatService;
   monitor: ConnectionMonitor;
   provider: ChatViewProvider;
+}
+
+const VECTOR_THEME_SAVED = "vectorTheme.saved";
+
+function userFontFolder(): string | undefined {
+  return fontFolder(process.platform, os.homedir(), process.env.XDG_DATA_HOME);
+}
+
+/** Fonts belong on the computer showing VS Code, and a remote extension can't reach it. */
+async function installVectorFont(context: vscode.ExtensionContext): Promise<void> {
+  const source = path.join(context.extensionPath, "media", "fonts");
+  if (vscode.env.remoteName) {
+    void vscode.window.showInformationMessage("Astute Vector Mono must be installed on your own computer, and this window is connected to a remote one. Install it from a local VS Code window.");
+    return;
+  }
+  const folder = userFontFolder();
+  if (!folder) {
+    await vscode.env.openExternal(vscode.Uri.file(source));
+    void vscode.window.showInformationMessage("Select the two AstuteVectorMono files in the folder that opened, right-click them and choose Install. Then restart VS Code.");
+    return;
+  }
+  const install = "Install";
+  const choice = await vscode.window.showInformationMessage("Install the Astute Vector Mono font for your user account?", { modal: true, detail: `This copies two font files to ${folder}. Other programs can use the font too.` }, install);
+  if (choice !== install) {
+    return;
+  }
+  await installFonts(source, folder);
+  await refreshFontCache(process.platform, folder);
+  const restart = "Reload Window";
+  if ((await vscode.window.showInformationMessage("Astute Vector Mono is installed. Reload the window so the terminal can use it.", restart)) === restart) {
+    await vscode.commands.executeCommand("workbench.action.reloadWindow");
+  }
+}
+
+async function offerVectorFont(context: vscode.ExtensionContext): Promise<void> {
+  const folder = userFontFolder();
+  if (vscode.env.remoteName || (folder && (await fontsInstalled(folder)))) {
+    return;
+  }
+  const install = "Install Font";
+  if ((await vscode.window.showInformationMessage("The terminal needs the Astute Vector Mono font to match the chat.", install)) === install) {
+    await installVectorFont(context);
+  }
 }
 
 function createStatusBar(monitor: ConnectionMonitor): vscode.StatusBarItem {
@@ -101,6 +148,27 @@ export function activate(context: vscode.ExtensionContext): AstuteChatApi {
   const service = new ChatService(log, terminal, mcp);
   const provider = new ChatViewProvider(context, service, monitor, log);
 
+  const vectorTheme: VectorThemeStore = {
+    enabled: () => vscode.workspace.getConfiguration("astuteChat").get<boolean>("vectorTheme.enabled", false),
+    read: (key) => vscode.workspace.getConfiguration().inspect<string | number>(key)?.globalValue,
+    write: (key, value) => vscode.workspace.getConfiguration().update(key, value, vscode.ConfigurationTarget.Global),
+    saved: () => context.globalState.get<SavedSettings>(VECTOR_THEME_SAVED),
+    save: (value) => context.globalState.update(VECTOR_THEME_SAVED, value),
+  };
+  // Changes run in turn, because writing these settings fires the change event again.
+  let themeSync = Promise.resolve();
+  const applyVectorTheme = (): void => {
+    themeSync = themeSync.then(async () => {
+      if ((await syncVectorTheme(vectorTheme)) === "applied") {
+        void offerVectorFont(context);
+      }
+    }).catch((error: unknown) => {
+      log.error(`Couldn't change the Astute Vector theme: ${String(error)}`);
+      void vscode.window.showErrorMessage("Astute Chat couldn't change the Astute Vector theme. Astute Chat: Show Logs has the details.");
+    });
+  };
+  applyVectorTheme();
+
   context.subscriptions.push(
     log,
     terminal,
@@ -109,6 +177,9 @@ export function activate(context: vscode.ExtensionContext): AstuteChatApi {
     createStatusBar(monitor),
     vscode.window.registerWebviewViewProvider(ChatViewProvider.viewId, provider),
     vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration("astuteChat.vectorTheme.enabled")) {
+        applyVectorTheme();
+      }
       if (event.affectsConfiguration("astuteChat.server") || event.affectsConfiguration("astuteChat.serverUrl")) {
         void monitor.refresh();
       } else if (event.affectsConfiguration("astuteChat.model")) {
@@ -126,6 +197,14 @@ export function activate(context: vscode.ExtensionContext): AstuteChatApi {
     vscode.commands.registerCommand("astuteChat.setServerAddress", () => setServerAddress(monitor)),
     vscode.commands.registerCommand("astuteChat.selectModel", () => selectModel(monitor, service)),
     vscode.commands.registerCommand("astuteChat.showLogs", () => log.show()),
+    vscode.commands.registerCommand("astuteChat.installVectorFont", async () => {
+      try {
+        await installVectorFont(context);
+      } catch (error) {
+        log.error(`Couldn't install the font: ${String(error)}`);
+        void vscode.window.showErrorMessage("Astute Chat couldn't install the font. Astute Chat: Show Logs has the details.");
+      }
+    }),
     vscode.commands.registerCommand("astuteChat.reloadSkills", () => {
       const count = service.skills().length;
       void vscode.window.showInformationMessage(count ? `Loaded ${count} Astute skill(s).` : "No Astute skills found in .astute/skills.");

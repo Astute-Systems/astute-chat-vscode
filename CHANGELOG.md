@@ -7,6 +7,7 @@ First Marketplace release.
 ### Chat
 
 - Chat tab in the secondary side bar, with a retro vector display
+- Optional Astute Vector look for all of VS Code, with a colour theme, a monospaced vector font for the terminal and matching code fonts
 - Streaming replies with a live token count and speed
 - Collapsible reasoning from models that support thinking
 - Stop button, also on Esc, which ends replies, approvals and running commands

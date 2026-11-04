@@ -473,6 +473,22 @@ rl.on("line", (line) => { const m = JSON.parse(line);
   await new Promise((resolve) => searchServer.close(resolve));
   pass("web tools are off by default, ask first in Ask, and can't reach private addresses");
 
+  const editorConfig = (): vscode.WorkspaceConfiguration => vscode.workspace.getConfiguration();
+  await editorConfig().update("workbench.colorTheme", "Default Light Modern", vscode.ConfigurationTarget.Global);
+  await config.update("vectorTheme.enabled", true, vscode.ConfigurationTarget.Global);
+  await waitFor(() => editorConfig().get("terminal.integrated.fontSize") === 13 && editorConfig().get("scm.inputFontFamily") !== "default", "the theme settings are applied");
+  assert.equal(editorConfig().get("workbench.colorTheme"), "Astute Vector");
+  assert.match(editorConfig().get<string>("terminal.integrated.fontFamily") ?? "", /^'Astute Vector Mono'/);
+  await waitFor(() => vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Dark, "the theme loads");
+  await config.update("vectorTheme.enabled", false, vscode.ConfigurationTarget.Global);
+  await waitFor(() => editorConfig().inspect("scm.inputFontFamily")?.globalValue === undefined, "the theme settings are restored");
+  await waitFor(() => editorConfig().inspect("terminal.integrated.fontFamily")?.globalValue === undefined, "the terminal font is restored");
+  assert.equal(editorConfig().get("workbench.colorTheme"), "Default Light Modern");
+  assert.equal(editorConfig().inspect("editor.fontFamily")?.globalValue, undefined);
+  assert.equal(editorConfig().inspect("terminal.integrated.fontSize")?.globalValue, undefined);
+  await editorConfig().update("workbench.colorTheme", undefined, vscode.ConfigurationTarget.Global);
+  pass("the Astute Vector option applies the theme and fonts, and restores them");
+
   const git = (...args: string[]): string => execFileSync("git", args, { cwd: root }).toString().trim();
   git("init", "-q", "-b", "main");
   git("config", "user.email", "t@example.com");

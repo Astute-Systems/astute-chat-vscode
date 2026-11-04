@@ -25,7 +25,8 @@
   },
   "categories": [
     "AI",
-    "Chat"
+    "Chat",
+    "Themes"
   ],
   "keywords": [
     "ollama",
@@ -48,6 +49,13 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "themes": [
+      {
+        "label": "Astute Vector",
+        "uiTheme": "vs-dark",
+        "path": "./themes/astute-vector-color-theme.json"
+      }
+    ],
     "configuration": {
       "title": "Astute Chat",
       "properties": {
@@ -138,6 +146,12 @@
           "default": true,
           "description": "Let models that support tools use workspace tools in trusted workspaces. Ask and Plan can only read. Agent can also change files and run commands, subject to your approvals."
         },
+        "astuteChat.vectorTheme.enabled": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "markdownDescription": "Apply the Astute Vector look to all of VS Code: the colour theme, Astute Vector Mono at size 13 in the terminal, and Courier Prime in the editor. Turning this off restores your previous theme and fonts. Fonts must be installed on your computer. Run **Astute Chat: Install Astute Vector Mono Font** for the terminal font."
+        },
         "astuteChat.web.enabled": {
           "type": "boolean",
           "default": false,
@@ -209,6 +223,11 @@
       }
     },
     "commands": [
+      {
+        "command": "astuteChat.installVectorFont",
+        "title": "Install Astute Vector Mono Font",
+        "category": "Astute Chat"
+      },
       {
         "command": "astuteChat.openChat",
         "title": "Open Chat",
