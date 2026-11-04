@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.17.0
 
 - New **Chats** section in the Astute tab lists your chats in a native view
 - New Chat during a reply now saves the reply instead of discarding it
