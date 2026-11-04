@@ -1,6 +1,6 @@
 import * as assert from "node:assert/strict";
 import { test } from "node:test";
-import { chooseToolModel, commandFailed, EngineEvents, fitToContext, resolveModel, runChat, ToolRunner } from "../chatEngine";
+import { chooseToolModel, claimsToolsBroken, commandFailed, EngineEvents, estimateMessages, fitToContext, resolveModel, runChat, ToolRunner } from "../chatEngine";
 import { ChatMessage, OllamaClient } from "../ollamaClient";
 import { line, startMock } from "./mockOllama";
 
@@ -319,4 +319,78 @@ test("automatic choices never pick a cloud model", () => {
   const withTools = models.map((model) => ({ ...model, capabilities: ["tools", "thinking"] }));
   assert.equal(chooseToolModel(withTools), "gemma3:4b");
   assert.equal(chooseToolModel(withTools.slice(0, 1)), undefined);
+});
+
+test("leaves room to answer after large file reads", () => {
+  const big = "x".repeat(12000);
+  const messages: ChatMessage[] = [
+    { role: "system", content: "rules" },
+    { role: "user", content: "where does it start" },
+    { role: "assistant", content: "", tool_calls: [{ function: { name: "read_file", arguments: {} } }] },
+    { role: "tool", tool_name: "read_file", content: big },
+    { role: "assistant", content: "", tool_calls: [{ function: { name: "read_file", arguments: {} } }] },
+    { role: "tool", tool_name: "read_file", content: big },
+  ];
+  const { messages: kept, dropped } = fitToContext(messages, 8192, 1, 4000);
+  assert.equal(dropped, 2, "the older read goes first, with its call");
+  assert.deepEqual(kept.map((message) => message.role), ["system", "user", "assistant", "tool"], "the latest result stays paired with its call");
+  assert.ok(estimateMessages(kept) + 4000 <= 8192 * 0.75, String(estimateMessages(kept)));
+  assert.match(kept.at(-1)?.content ?? "", /^x+\n\[Shortened to fit/);
+});
+
+test("counts tool definitions against the budget", () => {
+  const messages: ChatMessage[] = [{ role: "system", content: "rules" }, { role: "user", content: "hi" }, { role: "assistant", content: "", tool_calls: [{ function: { name: "x", arguments: {} } }] }, { role: "tool", tool_name: "x", content: "y".repeat(8000) }];
+  assert.equal(fitToContext(messages, 8192, 1, 0).messages.at(-1)?.content.length, 8000);
+  assert.ok((fitToContext(messages, 8192, 1, 5000).messages.at(-1)?.content.length ?? 0) < 8000);
+});
+
+test("asks again after an empty reply, with tools and thinking off", async (t) => {
+  let round = 0;
+  const mock = await startMock((_req, res) => {
+    round += 1;
+    res.end(line({ message: { content: round === 1 ? "" : "The answer." }, done: true, eval_count: 1 }));
+  });
+  t.after(() => mock.close());
+  const events = recorder();
+  const result = await runChat({ ...retryRequest(mock.url, events, { definitions: [], run: async () => "" }), think: true, retryWithoutTools: undefined });
+  const second = mock.requests.filter((r) => r.path === "/api/chat")[1].body;
+  assert.equal(result.content, "The answer.");
+  assert.equal(second.think, undefined);
+  assert.equal(second.tools, undefined);
+  assert.match(second.messages.at(-1).content, /didn't write an answer/);
+});
+
+test("says so when a model never answers", async (t) => {
+  let round = 0;
+  const mock = await startMock((_req, res) => {
+    round += 1;
+    res.end(line({ message: { content: "" }, done: true, eval_count: 1 }));
+  });
+  t.after(() => mock.close());
+  const events = recorder();
+  await runChat({ ...retryRequest(mock.url, events, { definitions: [], run: async () => "" }), retryWithoutTools: undefined });
+  assert.equal(round, 2);
+  assert.match(events.notices.at(-1) ?? "", /didn't write an answer/);
+});
+
+test("recognises a claim that tools don't work", () => {
+  for (const text of ["However, my tools are currently unable to list or search the workspace files", "I cannot perform live online research.", "the workspace environment is currently unable to execute any shell commands", "I can't read the files", "The tools aren't working."]) {
+    assert.ok(claimsToolsBroken(text), text);
+  }
+  for (const text of ["The function reads files and runs tools.", "This can't be null.", "The cannot-fail branch.", "All tests pass."]) {
+    assert.equal(claimsToolsBroken(text), false, text);
+  }
+});
+
+test("tells a model that claims its tools are broken to try them, once", async (t) => {
+  let round = 0;
+  const mock = await startMock((_req, res) => {
+    round += 1;
+    res.end(line({ message: { content: "My tools are unable to search the workspace. Is it in src?" }, done: true, eval_count: 1 }));
+  });
+  t.after(() => mock.close());
+  const events = recorder();
+  await runChat({ ...retryRequest(mock.url, events, { definitions: [], run: async () => "" }), retryWithoutTools: undefined });
+  assert.equal(round, 2);
+  assert.match(mock.requests.filter((r) => r.path === "/api/chat")[1].body.messages.at(-1).content, /tools do work/);
 });

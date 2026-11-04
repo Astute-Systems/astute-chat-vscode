@@ -12,7 +12,7 @@ import type { ToolCall, ToolDefinition } from "./ollamaClient";
 import { isInside, isSensitivePath } from "./pathGuard";
 import type { Skill } from "./skillLoader";
 import { runShell } from "./shell";
-import { isToolAllowed, replaceUnique, toolsForMode } from "./toolDefinitions";
+import { isToolAllowed, matchesIn, replaceUnique, toolsForMode } from "./toolDefinitions";
 import { webFetch, webSearch, WebSettings, webToolDefinitions } from "./webTools";
 
 /** Returns true only when the change is approved. */
@@ -27,6 +27,7 @@ const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_SEARCH_FILE_BYTES = 512 * 1024;
 const MAX_SEARCH_FILES = 400;
 const MAX_MATCHES = 50;
+const MAX_SEARCH_CONTEXT = 10;
 const MAX_PROBLEMS = 40;
 const MAX_INDEXED_FILES = 1500;
 const COMMAND_TIMEOUT_MS = 120000;
@@ -161,16 +162,18 @@ function getProblems(requested: string): string {
   return lines.length ? clip(lines.slice(0, MAX_PROBLEMS).join("\n")) : "There are no errors or warnings in the Problems panel.";
 }
 
-async function searchText(query: string, pattern?: string): Promise<string> {
+async function searchText(query: string, pattern?: string, contextLines = 0): Promise<string> {
+  const context = Math.min(Math.max(Math.floor(contextLines), 0), MAX_SEARCH_CONTEXT);
   const needle = query.toLowerCase();
   if (!needle) {
     return "Enter some text to search for.";
   }
   const uris = await vscode.workspace.findFiles(pattern || "**/*", EXCLUDE, MAX_SEARCH_FILES);
   const matches: string[] = [];
+  let found = 0;
 
   for (const uri of uris) {
-    if (matches.length >= MAX_MATCHES) {
+    if (found >= MAX_MATCHES) {
       break;
     }
     if (isSensitivePath(uri.fsPath)) {
@@ -184,11 +187,11 @@ async function searchText(query: string, pattern?: string): Promise<string> {
       if (text.includes("\0")) {
         continue;
       }
-      text.split(/\r?\n/).forEach((line, index) => {
-        if (matches.length < MAX_MATCHES && line.toLowerCase().includes(needle)) {
-          matches.push(`${display(uri)}:${index + 1}: ${line.trim().slice(0, 200)}`);
-        }
-      });
+      const hits = text.split(/\r?\n/).filter((line) => line.toLowerCase().includes(needle)).length;
+      if (hits) {
+        matches.push(...matchesIn(display(uri), text, needle, context, MAX_MATCHES - found));
+        found += hits;
+      }
     } catch {
       // Skip files that disappear or cannot be read.
     }
@@ -436,7 +439,7 @@ export function createToolRunner(mode: ChatMode, options: ToolOptions = {}): Too
           case "read_file":
             return await readFile(text("path"), line("start_line"), line("end_line"));
           case "search_text":
-            return await searchText(text("query"), text("pattern"));
+            return await searchText(text("query"), text("pattern"), line("context"));
           case "find_code":
             return await findCode(text("query"));
           case "update_tasks":

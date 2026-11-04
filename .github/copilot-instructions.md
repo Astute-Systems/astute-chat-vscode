@@ -52,7 +52,7 @@ Do not use `enabledApiProposals`. Proposed APIs work only in Insiders and must n
 - Add a rule to `src/languageSkills.ts` only for a mistake seen in a real run. Language skills stay off by default until `src/integration/eval.ts` shows they improve results.
 - VS Code has no API for the Explorer selection. Use the `explorer/context` command arguments, not clipboard tricks such as `copyFilePath`.
 - Send open-file and folder context with the request only. Do not store it in the transcript, or history will fill the context window.
-- `fitToContext` must always keep the system prompt, the current request and the latest tool results, and must keep tool results paired with their calls.
+- `fitToContext` must always keep the system prompt, the current request and the latest tool results, though it may shorten those results, and must keep tool results paired with their calls. It must leave room for the answer, and count tool definitions.
 - The Agent change report must come from `ChangeJournal`, never from the model. Undo must skip files that changed since.
 - Keep chat summaries in the system prompt, which is never trimmed.
 - Do not run real-model tests alongside other work. Contention caused false timeouts.

@@ -2,7 +2,7 @@ import * as assert from "node:assert/strict";
 import { test } from "node:test";
 import { isChatMode, MODES } from "../modes";
 import { findSkills, parseSlash } from "../skillLoader";
-import { CHANGE_TOOLS, isToolAllowed, READ_TOOLS, replaceUnique, toolsForMode } from "../toolDefinitions";
+import { CHANGE_TOOLS, isToolAllowed, matchesIn, READ_TOOLS, replaceUnique, toolsForMode } from "../toolDefinitions";
 
 const names = (mode: "ask" | "plan" | "agent"): string[] => toolsForMode(mode).map((tool) => tool.function.name);
 const changing = CHANGE_TOOLS.map((tool) => tool.function.name);
@@ -42,4 +42,13 @@ test("edit_file replaces only a unique match", () => {
   assert.ok("error" in replaceUnique("a", "z", "x"));
   assert.ok("error" in replaceUnique("a", "", "x"));
   assert.deepEqual(replaceUnique("price", "price", "$&"), { text: "$&" });
+});
+
+test("search shows the code around each match", () => {
+  const text = ["one", "two", "  find me", "four", "five", "six", "seven", "find me too", "nine"].join("\n");
+  assert.deepEqual(matchesIn("a.ts", text, "find", 0, 50), ["a.ts:3: find me", "a.ts:8: find me too"]);
+  assert.deepEqual(matchesIn("a.ts", text, "find", 1, 50), ["a.ts-2- two", "a.ts:3:   find me", "a.ts-4- four", "--", "a.ts-7- seven", "a.ts:8: find me too", "a.ts-9- nine"]);
+  assert.deepEqual(matchesIn("a.ts", text, "find", 2, 1), ["a.ts-1- one", "a.ts-2- two", "a.ts:3:   find me", "a.ts-4- four", "a.ts-5- five"], "the limit counts matches");
+  const near = ["a", "x", "b", "x", "c"].join("\n");
+  assert.equal(matchesIn("f", near, "x", 1, 50).length, 5, "overlapping context isn't repeated");
 });

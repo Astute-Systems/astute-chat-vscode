@@ -127,3 +127,15 @@ test("explains an interactive ollama chat", () => {
     assert.equal(interactiveCommandHint(text), undefined, text);
   }
 });
+
+test("allows grabbing code with sed line ranges and git grep", () => {
+  for (const text of ["sed -n 10,20p src/a.ts", "sed -n 5p src/a.ts", "sed -n '10,20p' src/a.ts", "grep -n foo src/a.ts | sed -n 1,5p", "git grep -n foo", "git grep -n -C3 foo src", "git grep -l foo -- src"]) {
+    assert.deepEqual(checkCommand(text), { safe: true }, text);
+  }
+});
+
+test("sed and git grep stay read-only, and away from secrets", () => {
+  for (const text of ["sed -i s/a/b/ src/a.ts", "sed s/a/b/ src/a.ts", "sed -n 1p .env", "sed -n 1,5p .en*", "sed -n /x/p src/a.ts", "sed -n '1w out.txt' src/a.ts", "sed -n 1e src/a.ts", "sed -n 1p -i src/a.ts", "sed -n 1p --in-place src/a.ts", "sed -e 1p src/a.ts", "sed -n 1p ../a", "sed -n 1p /etc/passwd", "sed", "git grep --no-index FAKE", "git grep --untracked FAKE", "git grep -O FAKE", "git grep -Ovi FAKE", "git grep --open-files-in-pager=sh FAKE", "git grep FAKE .env", "git grep -f .env", "grep -rn foo src", "awk 'NR==3' src/a.ts"]) {
+    assert.equal(checkCommand(text).safe, false, text);
+  }
+});

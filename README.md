@@ -45,7 +45,7 @@ Ollama also offers cloud models, with names ending in `:cloud`, which run on Oll
 
 Switch modes with the selector, or start a message with `/ask`, `/plan` or `/agent`. After a plan, select **Implement in Agent mode** to carry it out.
 
-In every mode, models can run read-only checks without asking, such as `git status`, `git log`, `uname -a`, `df -h` and `ollama list`. Ask and Plan stop there. Agent can also run any command, such as `git commit`, builds and service restarts, subject to your approval level. Commands can't answer prompts, so `sudo` works only if it needs no password.
+In every mode, models can run read-only checks without asking, such as `git status`, `git log`, `git grep`, `sed -n 10,20p`, `uname -a`, `df -h` and `ollama list`. Ask and Plan stop there. Agent can also run any command, such as `git commit`, builds and service restarts, subject to your approval level. Commands can't answer prompts, so `sudo` works only if it needs no password.
 
 Agent mode needs a model that supports tools. If the selected model can't use them, Agent picks one that can and tells you which. To always use one model for Agent, set `astuteChat.agentModel`. Agent's file tools can't write outside the workspace, and they won't touch `.git`, `.env` files or private keys. Read-only checks can't reach those files either, but a shell command you approve isn't limited in this way.
 

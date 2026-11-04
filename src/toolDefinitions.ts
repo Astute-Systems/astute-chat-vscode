@@ -20,7 +20,7 @@ export const READ_TOOLS: ToolDefinition[] = [
   ),
   tool(
     "probe_command",
-    "Run a read-only shell command straight away, with no approval, to check git or the system. Use it for git status, git log, git diff, git branch, uname -a, df -h, free -h, ps, ollama list and similar. Commands that change anything are refused.",
+    "Run a read-only shell command straight away, with no approval, to check git or the system, or to grab code. Use it for git grep -n text, grep -n text file, sed -n 10,20p file, git status, git log, git diff, git branch, uname -a, df -h, free -h, ps, ollama list and similar. Commands that change anything are refused.",
     { command: { type: "string", description: "The read-only command to run" } },
     ["command"],
   ),
@@ -38,10 +38,11 @@ export const READ_TOOLS: ToolDefinition[] = [
   ),
   tool(
     "search_text",
-    "Search workspace files for text, ignoring case. Returns matching lines with file and line number.",
+    "Search workspace files for text, ignoring case. Returns matching lines with file and line number. Set context to get the code around each match. This works in every mode.",
     {
       query: { type: "string", description: "Text to find" },
       pattern: { type: "string", description: "Optional glob pattern that limits the files searched" },
+      context: { type: "integer", description: "Lines to show before and after each match, up to 10" },
     },
     ["query"],
   ),
@@ -90,6 +91,31 @@ export function toolsForMode(mode: ChatMode): ToolDefinition[] {
 /** Checked again when a tool runs, because a model can call tools it was not offered. */
 export function isToolAllowed(mode: ChatMode, name: string): boolean {
   return toolsForMode(mode).some((definition) => definition.function.name === name);
+}
+
+/** Lines around each match, with : on a match and - on context, as grep shows them. */
+export function matchesIn(name: string, text: string, needle: string, context: number, limit: number): string[] {
+  const lines = text.split(/\r?\n/);
+  const output: string[] = [];
+  let found = 0;
+  let shownTo = -1;
+  for (let index = 0; index < lines.length && found < limit; index++) {
+    if (!lines[index].toLowerCase().includes(needle)) {
+      continue;
+    }
+    found += 1;
+    const from = Math.max(index - context, shownTo + 1);
+    if (context && output.length && from > shownTo + 1) {
+      output.push("--");
+    }
+    const to = Math.min(index + context, lines.length - 1);
+    for (let line = from; line <= to; line++) {
+      const matched = lines[line].toLowerCase().includes(needle);
+      output.push(`${name}${matched ? ":" : "-"}${line + 1}${matched ? ":" : "-"} ${(context ? lines[line].trimEnd() : lines[line].trim()).slice(0, 200)}`);
+    }
+    shownTo = Math.max(shownTo, to);
+  }
+  return output;
 }
 
 /** Replaces the single occurrence of oldText, or explains why it cannot. */

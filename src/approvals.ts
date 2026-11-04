@@ -30,9 +30,9 @@ const RISKY_PATHS: Array<[RegExp, string]> = [
 
 /** Read-only commands. Build and test commands run project code, so they are not here. */
 const READ_ONLY_COMMANDS = new Set(
-  "ls pwd cat head tail wc grep rg find echo which whoami file stat du df tree diff basename dirname uname id groups uptime free nproc lscpu lsblk lsmod lspci lsusb lsb_release ps".split(" "),
+  "ls pwd cat head tail wc grep rg sed find echo which whoami file stat du df tree diff basename dirname uname id groups uptime free nproc lscpu lsblk lsmod lspci lsusb lsb_release ps".split(" "),
 );
-const READ_ONLY_GIT = new Set("status diff log show blame rev-parse describe ls-files shortlog rev-list ls-tree".split(" "));
+const READ_ONLY_GIT = new Set("status diff log show blame rev-parse describe ls-files shortlog rev-list ls-tree grep".split(" "));
 /** Commands that are only read-only in the exact forms listed here. */
 const READ_ONLY_FORMS = [
   /^git branch( (-a|-r|-v|-vv|--all|--list|--show-current))*$/,
@@ -57,7 +57,8 @@ const UNSAFE_ARGUMENTS: Record<string, RegExp> = {
   find: /^-(exec|execdir|ok|okdir|delete|fprint|fprint0|fprintf|fls)$/,
   // Hidden and ignored files are where secrets live, and -g patterns can name them.
   rg: /^(--(pre|pre-glob|replace|hostname-bin|hidden|no-ignore|unrestricted|glob|iglob|files-from)|-[a-zA-Z.]*[ug.])/,
-  git: /^--(output|ext-diff|textconv|exec)/,
+  // git grep reads tracked files only, unless these widen it to .env or start a program.
+  git: /^(--(output|ext-diff|textconv|exec|no-index|untracked|no-exclude-standard|open-files-in-pager)|-O)/,
   grep: /^(-[a-zA-Z]*[rRd][a-zA-Z]*|--recursive|--dereference-recursive|--directories)/,
   tree: /^-[a-zA-Z]*o/,
   diff: /^--output/,
@@ -131,6 +132,11 @@ function parseShell(text: string): ShellSegment[] | undefined {
   return segments;
 }
 
+/** sed can write files and run commands, so only printing a line range counts as reading. */
+function isLineRangeSed(args: ShellWord[]): boolean {
+  return args[0]?.value === "-n" && /^\d+(,\d+)?p$/.test(args[1]?.value ?? "") && !args.slice(2).some((arg) => arg.value.startsWith("-"));
+}
+
 /** An argument can carry a path after an option, as in --file=.env, -f.env or HEAD:.env. */
 function pathsIn(arg: string): string[] {
   return [arg, ...arg.split(/[=:]/), ...(/^-[^-]/.test(arg) ? [arg.slice(2)] : [])];
@@ -184,6 +190,10 @@ export function checkCommand(command: string, allowed: readonly string[] = []): 
     const known = READ_ONLY_COMMANDS.has(program) || (program === "git" && READ_ONLY_GIT.has(args[0]?.value ?? ""));
     if (!known) {
       return { safe: false, reason: `${program} isn't on the read-only list.` };
+    }
+
+    if (program === "sed" && !isLineRangeSed(args)) {
+      return { safe: false, reason: "Only sed -n with a line range, such as sed -n 10,20p, is read-only." };
     }
 
     for (const { value: arg, pattern } of args) {
