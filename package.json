@@ -138,6 +138,26 @@
           "default": true,
           "description": "Let models that support tools read and search files in trusted workspaces. Tools are read-only."
         },
+        "astuteChat.web.enabled": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "markdownDescription": "Let models read web pages, in every mode. Each request asks first, except in full Auto. Search queries and addresses leave your machine. This can only be set per machine, so a workspace can't turn it on."
+        },
+        "astuteChat.web.searchUrl": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "pattern": "^$|^https?://",
+          "patternErrorMessage": "Enter a full address, such as http://127.0.0.1:8888.",
+          "markdownDescription": "Address of a [SearXNG](https://docs.searxng.org) server with JSON results turned on. Without one, models can open addresses but can't search."
+        },
+        "astuteChat.web.allowPrivateAddresses": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "markdownDescription": "Let models open addresses on this computer and your private network, such as an intranet. Leave this off unless you need it, because a web page could point a model at internal services."
+        },
         "astuteChat.mcp.servers": {
           "type": "object",
           "default": {},

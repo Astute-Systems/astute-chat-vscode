@@ -27,7 +27,7 @@ Private AI chat and a coding agent for VS Code, running on your own [Ollama](htt
 
 ## Privacy
 
-Astute Chat has no telemetry. Your prompts, code and images go only to the Ollama server you choose. The default server is on your own machine.
+Astute Chat has no telemetry. Your prompts, code and images go only to the Ollama server you choose. The default server is on your own machine. If you turn on [web research](#web-research), search queries go to your search server, and the addresses models open are contacted directly.
 
 ## Modes
 
@@ -114,6 +114,21 @@ Agent can use tools from [MCP](https://modelcontextprotocol.io) servers, which c
 ```
 
 Servers run as programs on your machine, so add only ones you trust. They come only from user settings, so a workspace can't start one. Each MCP tool call asks first, at every level except full **Auto**, and Ask and Plan don't get MCP tools. Each tool uses up context, so at most 20 tools are offered, shared evenly between your servers, and the chat tells you if any were left out. A server that fails to start is tried again on a later request, and one that stops is restarted. Local servers that use stdio are supported, but HTTP servers aren't.
+
+## Web research
+
+Web tools are off by default, so nothing goes online unless you turn them on in your user settings:
+
+```json
+"astuteChat.web.enabled": true,
+"astuteChat.web.searchUrl": "http://127.0.0.1:8888"
+```
+
+Models can then read web pages in Ask, Plan and Agent. Searching needs a [SearXNG](https://docs.searxng.org) server, which you can run yourself, with `json` added to `search.formats` in its `settings.yml`. Without one, models can still open addresses you give them.
+
+Each search and each page asks first, showing the query or address, at every level except full **Auto**. Check these before you approve them, because a model could be tricked into putting private details in one. Web tools need a model that supports tools and an open, trusted folder.
+
+Models can't open addresses on your computer or private network, even through a redirect, unless you turn on `astuteChat.web.allowPrivateAddresses`. Only the search server is exempt. Pages are limited to text, and long ones are shortened, so a larger `astuteChat.numCtx` helps with research.
 
 ## Chat history
 

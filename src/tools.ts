@@ -12,6 +12,7 @@ import type { ToolCall, ToolDefinition } from "./ollamaClient";
 import { isInside, isSensitivePath } from "./pathGuard";
 import { runShell } from "./shell";
 import { isToolAllowed, replaceUnique, toolsForMode } from "./toolDefinitions";
+import { webFetch, webSearch, WebSettings, webToolDefinitions } from "./webTools";
 
 /** Returns true only when the change is approved. */
 export type ConfirmChange = (request: ChangeRequest) => Promise<boolean>;
@@ -367,6 +368,24 @@ export interface ToolOptions {
   readTerminal?: () => string;
   mcp?: McpManager;
   mcpTools?: ToolDefinition[];
+  web?: WebSettings;
+}
+
+async function callWebTool(name: string, args: Record<string, unknown>, web: WebSettings, confirm: ConfirmChange, signal?: AbortSignal): Promise<string> {
+  const search = name === "web_search";
+  const value = String((search ? args.query : args.url) ?? "").trim();
+  if (!value) {
+    return search ? "Give a query to search for." : "Give a full web address.";
+  }
+  const title = search ? "Search the web?" : "Open this web address?";
+  if (!(await confirm({ kind: "tool", title, detail: preview(value) }))) {
+    return "The user denied this web request.";
+  }
+  try {
+    return await (search ? webSearch(value, web, signal) : webFetch(value, web, signal));
+  } catch (error) {
+    return `The web request failed: ${error instanceof Error ? error.message : "unknown error"}`;
+  }
 }
 
 async function callMcpTool(name: string, args: Record<string, unknown>, options: ToolOptions, confirm: ConfirmChange, signal?: AbortSignal): Promise<string> {
@@ -384,13 +403,17 @@ async function callMcpTool(name: string, args: Record<string, unknown>, options:
 }
 
 export function createToolRunner(mode: ChatMode, options: ToolOptions = {}): ToolRunner {
-  const { confirm = async () => false, readImage, journal, readTerminal, mcp, mcpTools = [] } = options;
+  const { confirm = async () => false, readImage, journal, readTerminal, mcp, mcpTools = [], web } = options;
+  const webTools = web ? webToolDefinitions(web) : [];
   return {
-    definitions: [...toolsForMode(mode), ...mcpTools],
+    definitions: [...toolsForMode(mode), ...webTools, ...mcpTools],
     async run(call, signal) {
       const name = call.function.name;
       if (mcpTools.some((tool) => tool.function.name === name) && mcp?.has(name)) {
         return callMcpTool(name, argumentsOf(call), options, confirm, signal);
+      }
+      if (web && webTools.some((tool) => tool.function.name === name)) {
+        return callWebTool(name, argumentsOf(call), web, confirm, signal);
       }
       if (!isToolAllowed(mode, name)) {
         return `The tool ${name} is not available in ${mode} mode. Nothing was changed.`;

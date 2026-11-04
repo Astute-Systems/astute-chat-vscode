@@ -15,6 +15,7 @@ First Marketplace release.
 
 ### Agent
 
+- Optional web research, with search through your own SearXNG server
 - Review mode, which keeps Agent's work on a branch to merge or discard
 - MCP tools from local servers in your user settings, with the 20-tool limit shared evenly between servers and failed servers restarted
 - A checklist for longer tasks

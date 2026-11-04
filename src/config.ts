@@ -1,3 +1,4 @@
+import type { WebSettings } from "./webTools";
 import * as vscode from "vscode";
 import { DEFAULT_PORT, parseServerAddress, ServerAddress } from "./server";
 
@@ -15,6 +16,8 @@ export interface ChatSettings {
   allowedCommands: string[];
   debugSkills: boolean;
   languageSkills: boolean;
+  /** Set only when the user has turned web tools on. */
+  web?: WebSettings;
 }
 
 function section(): vscode.WorkspaceConfiguration {
@@ -68,5 +71,8 @@ export function getChatSettings(): ChatSettings {
     allowedCommands: config.get<string[]>("approvals.allowedCommands", []),
     debugSkills: config.get<boolean>("debugSkills", false),
     languageSkills: config.get<boolean>("languageSkills", false),
+    web: config.get<boolean>("web.enabled", false)
+      ? { searchUrl: config.get<string>("web.searchUrl", "").trim(), allowPrivateAddresses: config.get<boolean>("web.allowPrivateAddresses", false) }
+      : undefined,
   };
 }

@@ -56,6 +56,7 @@ Do not use `enabledApiProposals`. Proposed APIs work only in Insiders and must n
 - Keep chat summaries in the system prompt, which is never trimmed.
 - Do not run real-model tests alongside other work. Contention caused false timeouts.
 - MCP servers must come only from `machine`-scoped settings, because they start programs. MCP tool annotations are untrusted, so every call asks unless full Auto is on.
+- Web tools stay off by default, with `machine`-scoped settings. Every request needs approval, and page text is untrusted. `src/webTools.ts` must check private addresses at connection time and on every redirect, so don't remove `publicLookup`.
 - Review mode stays off by default, and must never commit files Agent didn't write or touch uncommitted user work.
 - Do not auto-pull models or add telemetry.
 - Ollama reports token totals only at the end of a stream. Live counts are estimates, and the final count must come from `eval_count`.

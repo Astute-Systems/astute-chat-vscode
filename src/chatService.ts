@@ -7,7 +7,7 @@ import { SUMMARY_PROMPT, summarySection } from "./chatSummary";
 import { chooseToolModel, EngineEvents, EngineResult, resolveModel, runChat } from "./chatEngine";
 import { hostDescription } from "./hostInfo";
 import { detectLanguages, LANGUAGE_SKILLS } from "./languageSkills";
-import { ChatMode, MCP_RULE, MODES } from "./modes";
+import { ChatMode, MCP_RULE, MODES, WEB_RULE } from "./modes";
 import { getChatSettings, getServerAddress, saveModel } from "./config";
 import { ChatMessage, ModelDetails, ModelInfo, OllamaClient, OllamaError } from "./ollamaClient";
 import { describeLocation, findRepo } from "./repoInfo";
@@ -333,6 +333,9 @@ export class ChatService {
     if (mcpTools?.tools.length) {
       sections.push(MCP_RULE);
     }
+    if (useTools && settings.web) {
+      sections.push(WEB_RULE);
+    }
     const contextLimit = Math.min(settings.numCtx, details.contextLength ?? settings.numCtx);
     this.log.info(`Chat: mode=${mode.id} model=${model} num_ctx=${contextLimit} tools=${useTools} skill=${skill?.name ?? "none"} folder=${path.basename(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "")}`);
 
@@ -353,6 +356,7 @@ export class ChatService {
             readTerminal: this.terminal ? () => this.terminal?.describe() ?? "" : undefined,
             mcp: this.mcp,
             mcpTools: mcpTools?.tools,
+            web: settings.web,
           }) : undefined,
       maxToolRounds: mode.maxToolRounds,
       retryWithoutTools: mode.retryPrompt,

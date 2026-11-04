@@ -10,7 +10,7 @@ export async function run(): Promise<void> {
   const { provider } = await extension.activate();
   await vscode.commands.executeCommand("astuteChat.openChat");
   const root = vscode.workspace.workspaceFolders?.[0].uri.fsPath as string;
-  await provider.receive({ type: "selectMode", mode: "agent" });
+  await provider.receive({ type: "selectMode", mode: (process.env.ASTUTE_MODE as "ask" | "agent") ?? "agent" });
   await provider.receive({ type: "selectApproval", level: "full" });
   if (process.env.ASTUTE_REVIEW) {
     await provider.receive({ type: "toggleReview" });
