@@ -30,7 +30,7 @@ const RISKY_PATHS: Array<[RegExp, string]> = [
 
 /** Read-only commands. Build and test commands run project code, so they are not here. */
 const READ_ONLY_COMMANDS = new Set(
-  "ls pwd cat head tail wc grep rg find echo which whoami date file stat du df tree diff basename dirname uname hostname hostnamectl id groups uptime free nproc lscpu lsblk lsmod lspci lsusb lsb_release ps nvidia-smi".split(" "),
+  "ls pwd cat head tail wc grep rg find echo which whoami file stat du df tree diff basename dirname uname id groups uptime free nproc lscpu lsblk lsmod lspci lsusb lsb_release ps".split(" "),
 );
 const READ_ONLY_GIT = new Set("status diff log show blame rev-parse describe ls-files shortlog rev-list ls-tree".split(" "));
 /** Commands that are only read-only in the exact forms listed here. */
@@ -46,16 +46,95 @@ const READ_ONLY_FORMS = [
   /^systemctl (status|is-active|is-enabled) [\w@.-]+( --no-pager)?$/,
   /^ollama (list|ps)$/,
   /^ip (addr|a|route|r|link)( show)?$/,
+  // These can also change the system, so only forms that just report are listed.
+  /^date( -u| -R| --utc| --iso-8601(=\w+)?| \+[\w%:./-]+)*$/,
+  /^hostname( -[fsiI])?$/,
+  /^hostnamectl( status)?$/,
+  /^nvidia-smi( -L| --list-gpus| --query-[\w-]+=[\w.,]+| --format=[\w,-]+)*$/,
 ];
 const UNSAFE_SHELL = /[$`<>\\\n\r]|(^|[^&])&($|[^&])/;
 const UNSAFE_ARGUMENTS: Record<string, RegExp> = {
   find: /^-(exec|execdir|ok|okdir|delete|fprint|fprint0|fprintf|fls)$/,
-  rg: /^--(pre|pre-glob|replace)/,
+  // Hidden and ignored files are where secrets live, and -g patterns can name them.
+  rg: /^(--(pre|pre-glob|replace|hostname-bin|hidden|no-ignore|unrestricted|glob|iglob|files-from)|-[a-zA-Z.]*[ug.])/,
   git: /^--(output|ext-diff|textconv|exec)/,
-  grep: /^(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive|--dereference-recursive)$/,
-  tree: /^-o$/,
+  grep: /^(-[a-zA-Z]*[rRd][a-zA-Z]*|--recursive|--dereference-recursive|--directories)/,
+  tree: /^-[a-zA-Z]*o/,
   diff: /^--output/,
+  file: /^(-[a-zA-Z]*C|--compile)/,
 };
+
+interface ShellWord {
+  /** The word as the program receives it, with quotes removed. */
+  value: string;
+  /** The shell would expand this into file names. */
+  pattern: boolean;
+}
+
+interface ShellSegment {
+  text: string;
+  words: ShellWord[];
+}
+
+/**
+ * Splits a command the way the shell does, because checking the text as written
+ * lets '.en'v and .en* reach .env. Returns nothing if a quote isn't closed.
+ * UNSAFE_SHELL has already refused substitution, backslashes and newlines.
+ */
+function parseShell(text: string): ShellSegment[] | undefined {
+  const segments: ShellSegment[] = [];
+  let words: ShellWord[] = [];
+  let word: ShellWord | undefined;
+  let quote = "";
+  let start = 0;
+  const endWord = (): void => {
+    if (word) {
+      words.push(word);
+      word = undefined;
+    }
+  };
+  const endSegment = (end: number): void => {
+    endWord();
+    segments.push({ text: text.slice(start, end).trim(), words });
+    words = [];
+  };
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index];
+    if (quote) {
+      if (char === quote) {
+        quote = "";
+      } else {
+        (word as ShellWord).value += char;
+      }
+    } else if (/\s/.test(char)) {
+      endWord();
+    } else if (char === ";" || char === "|" || char === "&") {
+      endSegment(index);
+      if (text[index + 1] === char) {
+        index++;
+      }
+      start = index + 1;
+    } else {
+      word ??= { value: "", pattern: false };
+      if (char === "'" || char === '"') {
+        quote = char;
+      } else {
+        word.pattern ||= /[*?[{]/.test(char);
+        word.value += char;
+      }
+    }
+  }
+  if (quote) {
+    return undefined;
+  }
+  endSegment(text.length);
+  return segments;
+}
+
+/** An argument can carry a path after an option, as in --file=.env, -f.env or HEAD:.env. */
+function pathsIn(arg: string): string[] {
+  return [arg, ...arg.split(/[=:]/), ...(/^-[^-]/.test(arg) ? [arg.slice(2)] : [])];
+}
 
 export function checkEdit(change: Pick<ChangeRequest, "path" | "existingSize" | "newSize">): SafetyResult {
   const file = (change.path ?? "").replace(/\\/g, "/");
@@ -72,8 +151,8 @@ export function checkEdit(change: Pick<ChangeRequest, "path" | "existingSize" | 
 
 /**
  * Approves only commands proven read-only: anything unrecognised is risky, so a
- * new or clever command pauses for review. Quoted text is not parsed, which can
- * only make a command look riskier than it is.
+ * new or clever command pauses for review. Arguments are checked as the shell
+ * would pass them, because that's what the program reads.
  */
 export function checkCommand(command: string, allowed: readonly string[] = []): SafetyResult {
   const text = command.trim();
@@ -84,7 +163,11 @@ export function checkCommand(command: string, allowed: readonly string[] = []): 
     return { safe: false, reason: "It uses shell features such as redirects or substitution." };
   }
 
-  for (const segment of text.split(/&&|\|\||;|\|/).map((part) => part.trim())) {
+  const segments = parseShell(text);
+  if (!segments) {
+    return { safe: false, reason: "A quote isn't closed." };
+  }
+  for (const { text: segment, words } of segments) {
     if (!segment) {
       continue;
     }
@@ -96,25 +179,31 @@ export function checkCommand(command: string, allowed: readonly string[] = []): 
       continue;
     }
 
-    const words = segment.split(/\s+/);
-    const program = words[0];
+    const program = words[0].value;
     const args = words.slice(1);
-    const known = READ_ONLY_COMMANDS.has(program) || (program === "git" && READ_ONLY_GIT.has(args[0] ?? ""));
+    const known = READ_ONLY_COMMANDS.has(program) || (program === "git" && READ_ONLY_GIT.has(args[0]?.value ?? ""));
     if (!known) {
       return { safe: false, reason: `${program} isn't on the read-only list.` };
     }
 
-    for (const raw of args) {
-      const arg = raw.replace(/^["']|["']$/g, "");
+    for (const { value: arg, pattern } of args) {
+      if (pattern) {
+        return { safe: false, reason: "It uses a shell pattern, which could match a file that holds secrets." };
+      }
       if (UNSAFE_ARGUMENTS[program]?.test(arg)) {
         return { safe: false, reason: `${program} ${arg} can change files or read too widely.` };
       }
-      if (arg.startsWith("/") || arg.startsWith("~") || arg.split("/").includes("..")) {
-        return { safe: false, reason: "It reaches outside the workspace." };
+      // Git expands patterns itself, so quoting one doesn't make it literal.
+      if (program === "git" && !arg.startsWith("-") && /[*?[]/.test(arg)) {
+        return { safe: false, reason: "It uses a Git pattern, which could match a file that holds secrets." };
       }
-      // git show HEAD:.env names a file after the colon.
-      if (isSensitivePath(arg) || arg.split(":").some(isSensitivePath)) {
-        return { safe: false, reason: "It reads a file that may contain secrets." };
+      for (const part of pathsIn(arg)) {
+        if (part.startsWith("/") || part.startsWith("~") || part.split("/").includes("..")) {
+          return { safe: false, reason: "It reaches outside the workspace." };
+        }
+        if (isSensitivePath(part)) {
+          return { safe: false, reason: "It reads a file that may contain secrets." };
+        }
       }
     }
   }

@@ -87,6 +87,9 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <li><strong>Selected code</strong> is added to your next message automatically</li>
 <li><strong>Copy and Run buttons</strong> on code snippets</li>
 <li><strong>Images and screenshots</strong> you can attach, and that Agent can open from the workspace</li>
+<li><strong>Review mode</strong>, which keeps Agent's work on a branch to merge or discard</li>
+<li><strong>MCP tools</strong> from local servers you add</li>
+<li><strong>Optional web research</strong>, off by default</li>
 <li><strong>File links</strong> that open workspace files named in the chat, at the right line</li>
 <li><strong>Retro vector display</strong> with blue chat text and white Courier code, on every VS Code theme</li>
 </ul>
@@ -127,7 +130,7 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 </table></div>
 <p>Switch modes with the selector, or start a message with <code>/ask</code>, <code>/plan</code> or <code>/agent</code>. After a plan, select <strong>Implement in Agent mode</strong> to carry it out.</p>
 <p>In every mode, models can run read-only checks without asking, such as <code>git status</code>, <code>git log</code>, <code>uname -a</code>, <code>df -h</code> and <code>ollama list</code>. Ask and Plan stop there. Agent can also run any command, such as <code>git commit</code>, builds and service restarts, subject to your approval level. Commands can't answer prompts, so <code>sudo</code> works only if it needs no password.</p>
-<p>Agent mode needs a model that supports tools. If the selected model can't use them, Agent picks one that can and tells you which. To always use one model for Agent, set <code>astuteChat.agentModel</code>. Agent can't write outside the workspace, and it won't touch <code>.git</code>, <code>.env</code> files or private keys.</p>
+<p>Agent mode needs a model that supports tools. If the selected model can't use them, Agent picks one that can and tells you which. To always use one model for Agent, set <code>astuteChat.agentModel</code>. Agent's file tools can't write outside the workspace, and they won't touch <code>.git</code>, <code>.env</code> files or private keys. Read-only checks can't reach those files either, but a shell command you approve isn't limited in this way.</p>
 <p><img src="images/screenshots/agent.png" alt="Agent mode building a library in small code windows"></p>
 <h2 id="approvals">Approvals</h2>
 <p>In Agent mode, a card in the tab asks you to approve each action. Choose how much it asks with the control beside the mode selector. Select it or press Shift+Tab in the message box to cycle.</p>
@@ -158,7 +161,7 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 </tbody>
 </table></div>
 <p>Sensitive files include <code>.vscode</code>, <code>.github</code>, <code>.astute</code>, build files such as <code>package.json</code> and <code>Makefile</code>, and scripts. Edits that remove more than half of a file also ask.</p>
-<p><strong>Safe auto</strong> approves a command only if it is on a read-only list, such as <code>ls</code>, <code>grep</code> and <code>git status</code>, and uses no redirects or substitution. Build and test commands ask because they run project code. To let Safe auto run a command you trust, add it to <code>astuteChat.approvals.allowedCommands</code>. Treat this as a convenience, not a security boundary: review what the agent did, and use version control.</p>
+<p><strong>Safe auto</strong> approves a command only if it is on a read-only list, such as <code>ls</code>, <code>grep</code> and <code>git status</code>, and uses no redirects, substitution or shell patterns such as <code>*</code>. Build and test commands ask because they run project code. To let Safe auto run a command you trust, add it to <code>astuteChat.approvals.allowedCommands</code>. Treat this as a convenience, not a security boundary: review what the agent did, and use version control.</p>
 <p>Each auto-approved action appears in the chat and in the logs.</p>
 <p><img src="images/screenshots/approval.png" alt="An approval card waiting for a decision"></p>
 <h3 id="auto">Auto</h3>
@@ -353,6 +356,21 @@ Your instructions here.
 <td>MCP servers for Agent</td>
 </tr>
 <tr>
+<td><code>astuteChat.web.enabled</code></td>
+<td><code>false</code></td>
+<td>Lets models read web pages</td>
+</tr>
+<tr>
+<td><code>astuteChat.web.searchUrl</code></td>
+<td>Empty</td>
+<td>SearXNG server for web search</td>
+</tr>
+<tr>
+<td><code>astuteChat.web.allowPrivateAddresses</code></td>
+<td><code>false</code></td>
+<td>Lets models open addresses on your private network</td>
+</tr>
+<tr>
 <td><code>astuteChat.approvals.allowedCommands</code></td>
 <td><code>[]</code></td>
 <td>Extra commands that Safe auto can approve</td>
@@ -369,7 +387,7 @@ Your instructions here.
 </tr>
 </tbody>
 </table></div>
-<p>Server settings apply per machine, so a workspace can't redirect your prompts to another server.</p>
+<p>Server, web and MCP settings apply per machine, so a workspace can't redirect your prompts, turn on web access or start a server.</p>
 <h2 id="if-it-runs-slowly">If it runs slowly</h2>
 <ul>
 <li>Check that Ollama is using the GPU: <code>ollama ps</code> shows <code>100% GPU</code> when it is.</li>
@@ -381,6 +399,7 @@ Your instructions here.
 <p><code>@astute</code> still works, but VS Code has deprecated chat participants. It always runs as Ask, and new features go in the Astute tab.</p>
 <h2 id="licence">Licence</h2>
 <p>Astute Chat is released under the MIT licence. The Astute Systems and Astute Chat names and logos are not covered by that licence. Bundled software and fonts are listed in <code>ThirdPartyNotices.txt</code>.</p>
+<p>To report a security problem, see <a href="SECURITY.md">SECURITY.md</a>.</p>
 <h2 id="develop">Develop</h2>
 <pre><code class="language-bash">npm install
 npm run compile

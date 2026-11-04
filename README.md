@@ -16,6 +16,9 @@ Private AI chat and a coding agent for VS Code, running on your own [Ollama](htt
 - **Selected code** is added to your next message automatically
 - **Copy and Run buttons** on code snippets
 - **Images and screenshots** you can attach, and that Agent can open from the workspace
+- **Review mode**, which keeps Agent's work on a branch to merge or discard
+- **MCP tools** from local servers you add
+- **Optional web research**, off by default
 - **File links** that open workspace files named in the chat, at the right line
 - **Retro vector display** with blue chat text and white Courier code, on every VS Code theme
 
@@ -41,7 +44,7 @@ Switch modes with the selector, or start a message with `/ask`, `/plan` or `/age
 
 In every mode, models can run read-only checks without asking, such as `git status`, `git log`, `uname -a`, `df -h` and `ollama list`. Ask and Plan stop there. Agent can also run any command, such as `git commit`, builds and service restarts, subject to your approval level. Commands can't answer prompts, so `sudo` works only if it needs no password.
 
-Agent mode needs a model that supports tools. If the selected model can't use them, Agent picks one that can and tells you which. To always use one model for Agent, set `astuteChat.agentModel`. Agent can't write outside the workspace, and it won't touch `.git`, `.env` files or private keys.
+Agent mode needs a model that supports tools. If the selected model can't use them, Agent picks one that can and tells you which. To always use one model for Agent, set `astuteChat.agentModel`. Agent's file tools can't write outside the workspace, and they won't touch `.git`, `.env` files or private keys. Read-only checks can't reach those files either, but a shell command you approve isn't limited in this way.
 
 ![Agent mode building a library in small code windows](images/screenshots/agent.png)
 
@@ -57,7 +60,7 @@ In Agent mode, a card in the tab asks you to approve each action. Choose how muc
 
 Sensitive files include `.vscode`, `.github`, `.astute`, build files such as `package.json` and `Makefile`, and scripts. Edits that remove more than half of a file also ask.
 
-**Safe auto** approves a command only if it is on a read-only list, such as `ls`, `grep` and `git status`, and uses no redirects or substitution. Build and test commands ask because they run project code. To let Safe auto run a command you trust, add it to `astuteChat.approvals.allowedCommands`. Treat this as a convenience, not a security boundary: review what the agent did, and use version control.
+**Safe auto** approves a command only if it is on a read-only list, such as `ls`, `grep` and `git status`, and uses no redirects, substitution or shell patterns such as `*`. Build and test commands ask because they run project code. To let Safe auto run a command you trust, add it to `astuteChat.approvals.allowedCommands`. Treat this as a convenience, not a security boundary: review what the agent did, and use version control.
 
 Each auto-approved action appears in the chat and in the logs.
 
@@ -226,11 +229,14 @@ Astute Chat follows an `AGENTS.md` file in your workspace, the same format many 
 | `astuteChat.thinking` | `true` | Shows reasoning from models that support it |
 | `astuteChat.tools.enabled` | `true` | Lets models use workspace tools |
 | `astuteChat.mcp.servers` | `{}` | MCP servers for Agent |
+| `astuteChat.web.enabled` | `false` | Lets models read web pages |
+| `astuteChat.web.searchUrl` | Empty | SearXNG server for web search |
+| `astuteChat.web.allowPrivateAddresses` | `false` | Lets models open addresses on your private network |
 | `astuteChat.approvals.allowedCommands` | `[]` | Extra commands that Safe auto can approve |
 | `astuteChat.languageSkills` | `false` | Adds experimental C, C++ and Python guidance |
 | `astuteChat.debugSkills` | `false` | Adds every skill's full text to the prompt |
 
-Server settings apply per machine, so a workspace can't redirect your prompts to another server.
+Server, web and MCP settings apply per machine, so a workspace can't redirect your prompts, turn on web access or start a server.
 
 ## If it runs slowly
 
@@ -246,6 +252,8 @@ Server settings apply per machine, so a workspace can't redirect your prompts to
 ## Licence
 
 Astute Chat is released under the MIT licence. The Astute Systems and Astute Chat names and logos are not covered by that licence. Bundled software and fonts are listed in `ThirdPartyNotices.txt`.
+
+To report a security problem, see [SECURITY.md](SECURITY.md).
 
 ## Develop
 
