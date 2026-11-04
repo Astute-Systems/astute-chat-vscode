@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.18.0
 
 - Astute Chat is now Astute Code, with a new logo. Your settings, saved chats and installed extension carry over unchanged
 - The context figure no longer climbs to 100% during long Agent runs by counting earlier replies twice
