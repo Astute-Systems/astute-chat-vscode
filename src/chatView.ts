@@ -57,6 +57,10 @@ function selectionContext(): { context: string; note: string } | undefined {
   }
   const { selection, document } = editor;
   const file = vscode.workspace.asRelativePath(document.uri);
+  // A selection is an easy way to send a secret by accident, so the rule for files applies here too.
+  if (isSensitivePath(document.uri.fsPath)) {
+    return { note: `Selection from ${file} wasn't sent, because that file may hold secrets.`, context: "" };
+  }
   const range = `${selection.start.line + 1}-${selection.end.line + 1}`;
   const text = document.getText(selection).slice(0, MAX_SELECTION_CHARS);
   return {

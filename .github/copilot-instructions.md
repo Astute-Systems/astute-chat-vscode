@@ -61,6 +61,7 @@ Do not use `enabledApiProposals`. Proposed APIs work only in Insiders and must n
 - Review mode stays off by default, and must never commit files Agent didn't write or touch uncommitted user work.
 - `src/projectSummary.ts` puts repository text in the system prompt, so it must keep only values that pass `plain()`. Never add descriptions or script bodies.
 - `run_tests` must take its command from `findTestCommand`. The model may only supply a target that passes `testTarget`, and it's never put in a shell command unchecked.
+- Every way of sending workspace text to a model must check `isSensitivePath`, including selections. Never give a model a tool that reads `.env`. A script that uses a secret must read it itself.
 - Do not auto-pull models or add telemetry.
 - Automatic model choices must go through `localModels`. Cloud models are only a few hundred bytes, so sorting by size picks them, and they send code off the machine. Only a model the user chose may be remote.
 - Ollama reports token totals only at the end of a stream. Live counts are estimates, and the final count must come from `eval_count`.

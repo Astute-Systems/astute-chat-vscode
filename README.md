@@ -79,7 +79,7 @@ The lightning **Auto** toggle beside Send turns off all approvals in Agent mode,
 
 ## File and folder context
 
-The file you have open goes with each message, including unsaved changes, so you can say "this file". It appears as a small tag above the message box, where you can remove it. If you've selected code, only the selection is sent. Files that may hold secrets, such as `.env`, are never added.
+The file you have open goes with each message, including unsaved changes, so you can say "this file". It appears as a small tag above the message box, where you can remove it. If you've selected code, only the selection is sent. Files that may hold secrets, such as `.env`, are never added, and text you select in them isn't sent either.
 
 To add other files or a folder, type `@` in the message box and pick one, right-click them in the Explorer and choose **Add to Astute Chat**, or drag them onto the chat. A folder tells the model where to work, and new files go there unless you say otherwise. Long files are shortened, and models with tools can read the rest. **New Chat** clears these.
 

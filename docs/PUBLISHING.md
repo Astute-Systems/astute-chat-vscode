@@ -34,11 +34,13 @@ AZURE-PAT=<your token>
 
 `.env` is ignored by Git and left out of the extension package. Never commit it or paste the token anywhere, because the repository is public. Stage files by name if you're unsure, and check `git status` before you commit.
 
-The hyphen means your shell can't load this name directly, so pass the value to `vsce` as `VSCE_PAT`:
+Then publish with:
 
 ```bash
-VSCE_PAT="$(sed -n 's/^AZURE-PAT=//p' .env)" npx vsce publish --no-dependencies
+npm run publish:marketplace
 ```
+
+The script reads the token itself and hides it in its output, so an agent can run this without seeing the token. Agents can't read `.env`, and that's deliberate, because anything they read goes into the model's prompt.
 
 Global tokens retire on 1 December 2026, so use this only as a fallback until Trusted Publishing is set up.
 

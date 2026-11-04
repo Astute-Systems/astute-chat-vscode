@@ -371,7 +371,8 @@
     "test": "tsc -p tsconfig.test.json && node --test out-test/test/*.test.js",
     "vscode:prepublish": "npm run compile",
     "package": "vsce package --no-dependencies",
-    "docs": "node tools/build-docs.js"
+    "docs": "node tools/build-docs.js",
+    "publish:marketplace": "node tools/publish.js"
   },
   "devDependencies": {
     "@types/markdown-it": "^14.1.2",

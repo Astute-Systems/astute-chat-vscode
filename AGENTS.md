@@ -26,6 +26,7 @@ Astute Chat is a VS Code extension: an offline-first chat client and coding agen
 - `npm test`: unit and mock-server tests in `src/test`
 - `npm run package`: build the VSIX
 - `npm run docs`: rebuild `docs/site` from `README.md`, which CI checks
+- `npm run publish:marketplace`: publish with the token in `.env`. Use this, and don't try to read `.env`, which the tools refuse.
 
 ## Rules that matter most
 

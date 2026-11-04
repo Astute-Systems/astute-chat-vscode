@@ -530,6 +530,20 @@ rl.on("line", (line) => { const m = JSON.parse(line);
   fs.rmSync(navDir, { recursive: true });
   pass("code_nav uses the language server, edits report new errors, and run_tests reports failures");
 
+  const secretFile = path.join(root, ".env");
+  fs.writeFileSync(secretFile, "AZURE-PAT=fake-secret-value\n");
+  const secretEditor = await vscode.window.showTextDocument(vscode.Uri.file(secretFile));
+  secretEditor.selection = new vscode.Selection(0, 0, 0, 27);
+  await panel.receive({ type: "selectMode", mode: "ask" });
+  play([]);
+  await panel.send("use this token");
+  const secretRequest = JSON.stringify(mock.requests.filter((request) => request.path === "/api/chat").at(-1)?.body.messages);
+  assert.ok(secretRequest.includes("use this token"), "the message is still sent");
+  assert.ok(!secretRequest.includes("fake-secret-value"), "selected secrets never reach the model");
+  await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+  fs.rmSync(secretFile);
+  pass("text selected in a secret file isn't sent");
+
   const editorConfig = (): vscode.WorkspaceConfiguration => vscode.workspace.getConfiguration();
   await editorConfig().update("workbench.colorTheme", "Default Light Modern", vscode.ConfigurationTarget.Global);
   await config.update("vectorTheme.enabled", true, vscode.ConfigurationTarget.Global);
