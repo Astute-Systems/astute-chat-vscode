@@ -14,7 +14,8 @@ export async function run(): Promise<void> {
   const notices: string[] = [];
   let content = "";
   const started = Date.now();
-  const result = await api.service.runTurn({
+  const result = await api.service
+    .runTurn({
     prompt: process.env.ASTUTE_PROMPT as string,
     history: [],
     mode: (process.env.ASTUTE_MODE as "ask" | "agent") ?? "agent",
@@ -27,12 +28,16 @@ export async function run(): Promise<void> {
       onTool: (text) => tools.push(text.slice(0, 260)),
       onNotice: (text) => notices.push(text),
     },
-  });
+    })
+    .catch((error: unknown) => {
+      console.log("BUILD ERROR:", error instanceof Error ? `${error.name}: ${error.message}` : String(error), JSON.stringify({ tools, notices, partial: content.slice(-120) }));
+      throw error;
+    });
   const files = fs.readdirSync(root).filter((name) => fs.statSync(path.join(root, name)).isFile());
   console.log("BUILD model:", result.model, "|", result.summary, `| ${Math.round((Date.now() - started) / 1000)}s`);
   console.log("BUILD tools:", JSON.stringify(tools));
   console.log("BUILD notices:", JSON.stringify(notices));
   console.log("BUILD files:", JSON.stringify(files));
   console.log("BUILD imageText:", JSON.stringify(result.imageText.slice(0, 170)));
-  console.log("BUILD reply:", JSON.stringify(content.slice(-230)));
+  console.log("BUILD reply:", JSON.stringify(content.slice(0, 900)));
 }

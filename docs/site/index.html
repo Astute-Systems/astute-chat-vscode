@@ -43,7 +43,7 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <div class="layout">
 <nav aria-label="Contents">
 <div class="brand"><img src="images/icon.png" alt="">Astute Chat</div>
-<span class="version">Version 0.14.0</span>
+<span class="version">Version 0.16.0</span>
 <a href="#features">Features</a>
 <a href="#requirements">Requirements</a>
 <a href="#privacy">Privacy</a>
@@ -53,6 +53,10 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <a href="#images">Images</a>
 <a href="#no-dummy-files">No dummy files</a>
 <a href="#code-snippets">Code snippets</a>
+<a href="#review-mode">Review mode</a>
+<a href="#mcp-tools">MCP tools</a>
+<a href="#chat-history">Chat history</a>
+<a href="#finding-code">Finding code</a>
 <a href="#errors-and-terminal-output">Errors and terminal output</a>
 <a href="#see-and-undo-what-agent-did">See and undo what Agent did</a>
 <a href="#stop-a-response">Stop a response</a>
@@ -122,7 +126,7 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 </table></div>
 <p>Switch modes with the selector, or start a message with <code>/ask</code>, <code>/plan</code> or <code>/agent</code>. After a plan, select <strong>Implement in Agent mode</strong> to carry it out.</p>
 <p>In every mode, models can run read-only checks without asking, such as <code>git status</code>, <code>git log</code>, <code>uname -a</code>, <code>df -h</code> and <code>ollama list</code>. Ask and Plan stop there. Agent can also run any command, such as <code>git commit</code>, builds and service restarts, subject to your approval level. Commands can't answer prompts, so <code>sudo</code> works only if it needs no password.</p>
-<p>Agent mode needs a model that supports tools. It can't write outside the workspace, and it won't touch <code>.git</code>, <code>.env</code> files or private keys.</p>
+<p>Agent mode needs a model that supports tools. If the selected model can't use them, Agent picks one that can and tells you which. To always use one model for Agent, set <code>astuteChat.agentModel</code>. Agent can't write outside the workspace, and it won't touch <code>.git</code>, <code>.env</code> files or private keys.</p>
 <p><img src="images/screenshots/agent.png" alt="Agent mode building a library in small code windows"></p>
 <h2 id="approvals">Approvals</h2>
 <p>In Agent mode, a card in the tab asks you to approve each action. Choose how much it asks with the control beside the mode selector. Select it or press Shift+Tab in the message box to cycle.</p>
@@ -175,6 +179,23 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <p>A refusal appears in the chat, and the model is told to do the work properly. If a command leaves an empty build output, such as <code>touch libfoo.a</code>, the chat says so.</p>
 <h2 id="code-snippets">Code snippets</h2>
 <p>Every code block has a <strong>Copy</strong> button. Finished shell snippets also have <strong>Run</strong>, which runs the snippet straight away in your open terminal, or in a new one if none is open. It runs as soon as you select it, with no approval step and whatever the mode, so read the command first. It also goes to whatever is running in that terminal, so make sure a shell prompt is showing.</p>
+<h2 id="review-mode">Review mode</h2>
+<p>The <strong>Review</strong> toggle beside <strong>Auto</strong> keeps Agent's work on its own branch. Agent creates a branch such as <code>astute/add-driver</code>, and commits the files it wrote there. Your original branch stays as it was. The reply then offers <strong>View changes</strong>, <strong>Merge</strong> and <strong>Discard</strong>.</p>
+<p>Review mode needs a Git repository with no uncommitted changes to tracked files. If that isn't the case, the chat says so and Agent works on the current branch. It commits only the files written with file tools, so files a command creates stay uncommitted, and Discard removes the commit but not those files. Follow-up requests continue on the same branch until you merge or discard it. Shell commands can still change anything, including other branches.</p>
+<h2 id="mcp-tools">MCP tools</h2>
+<p>Agent can use tools from <a href="https://modelcontextprotocol.io">MCP</a> servers, which connect models to outside systems. Add them to your user settings:</p>
+<pre><code class="language-json">&quot;astuteChat.mcp.servers&quot;: {
+  &quot;files&quot;: {
+    &quot;command&quot;: &quot;npx&quot;,
+    &quot;args&quot;: [&quot;-y&quot;, &quot;@modelcontextprotocol/server-filesystem&quot;, &quot;/home/me/docs&quot;]
+  }
+}
+</code></pre>
+<p>Servers run as programs on your machine, so add only ones you trust. They come only from user settings, so a workspace can't start one. Each MCP tool call asks first, at every level except full <strong>Auto</strong>, and Ask and Plan don't get MCP tools. Each tool uses up context, so only the first 20 tools are offered. Local servers that use stdio are supported, but HTTP servers aren't.</p>
+<h2 id="chat-history">Chat history</h2>
+<p><strong>New Chat</strong> saves the current chat. Select the history icon at the top of the tab to reopen or delete a saved chat. Astute Chat keeps your last 30 chats for each workspace, on this computer. Large tool output isn't kept in saved chats.</p>
+<h2 id="finding-code">Finding code</h2>
+<p>Models can search the workspace from a plain description, such as &quot;where do we retry a connection&quot;. This ranks code by the words it shares with the description, including the parts of names like <code>runChat</code>. It needs no extra model and works offline, but it doesn't understand meaning, so it can miss code that uses different words.</p>
 <h2 id="errors-and-terminal-output">Errors and terminal output</h2>
 <p>Models can read VS Code's Problems panel, and your recent terminal commands with their output, so you can say &quot;fix that error&quot;. Terminal reading needs VS Code shell integration, which is on by default for bash, zsh, fish and PowerShell. Terminal output goes to the model only when it asks for it, so take care if your commands print secrets.</p>
 <p>If a command fails in Agent mode, the model is sent back to fix it, up to three times. If it's still failing at the end, the chat says so.</p>
@@ -187,7 +208,7 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <h2 id="set-up">Set up</h2>
 <ol>
 <li>Start Ollama, and install a model with <code>ollama pull &lt;model&gt;</code>.</li>
-<li>Install Astute Chat from the Extensions view. To install a VSIX file instead, run <code>code --install-extension astute-chat-ollama-0.14.0.vsix</code>.</li>
+<li>Install Astute Chat from the Extensions view. To install a VSIX file instead, run <code>code --install-extension astute-chat-ollama-0.16.0.vsix</code>.</li>
 <li>Open the <strong>Astute</strong> tab beside Chat. If it's hidden, run <strong>Astute Chat: Open Chat</strong>.</li>
 </ol>
 <p>To use another server, run <strong>Astute Chat: Set Server Address</strong>, or use the server icon on the tab. The address shows in the status bar. Enter an IP address or hostname with an optional port, such as <code>192.168.1.20:11434</code>.</p>
@@ -273,6 +294,11 @@ Your instructions here.
 <td>Model to use</td>
 </tr>
 <tr>
+<td><code>astuteChat.agentModel</code></td>
+<td>The chat model</td>
+<td>Model for Agent mode</td>
+</tr>
+<tr>
 <td><code>astuteChat.visionModel</code></td>
 <td>Smallest with vision</td>
 <td>Reads images for models without vision</td>
@@ -311,6 +337,11 @@ Your instructions here.
 <td><code>astuteChat.tools.enabled</code></td>
 <td><code>true</code></td>
 <td>Lets models use workspace tools</td>
+</tr>
+<tr>
+<td><code>astuteChat.mcp.servers</code></td>
+<td><code>{}</code></td>
+<td>MCP servers for Agent</td>
 </tr>
 <tr>
 <td><code>astuteChat.approvals.allowedCommands</code></td>
