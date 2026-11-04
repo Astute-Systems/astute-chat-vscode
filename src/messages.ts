@@ -40,6 +40,8 @@ export interface TranscriptEntry {
   changes?: ChangeReport;
   /** Set while this reply can still be undone. */
   undoId?: number;
+  /** Names the file holding this plan. Only finished Plan replies have one. */
+  planId?: string;
   review?: ReviewSummary;
 }
 
@@ -88,6 +90,13 @@ export interface ViewState {
   status?: string;
   /** Share of the context window the latest reply used. Unknown until a reply in this chat. */
   contextUse?: number;
+  /** The plan Agent is following. */
+  activePlan?: ActivePlan;
+}
+
+export interface ActivePlan {
+  id: string;
+  title: string;
 }
 
 export type ToWebview =
@@ -111,7 +120,9 @@ export type FromWebview =
   | { type: "stop" }
   | { type: "selectModel"; model: string }
   | { type: "selectMode"; mode: ChatMode }
-  | { type: "implementPlan" }
+  | { type: "implementPlan"; planId: string }
+  | { type: "openPlan"; planId: string }
+  | { type: "clearPlan" }
   | { type: "newChat" }
   | { type: "openContext" }
   | { type: "toggleReview" }

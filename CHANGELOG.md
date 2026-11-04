@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Plans now follow a fixed template and are saved as files, with a new **Edit plan** button
+- Agent keeps the plan you approved in view while it works, so a long chat can't summarise it away
+- **Implement in Agent mode** now carries out the plan you selected, not the newest one
+
 ## 0.17.0
 
 - New **Chats** section in the Astute tab lists your chats in a native view

@@ -65,3 +65,11 @@ test("run_tests can change things, and code_nav can't", () => {
   assert.ok(!isToolAllowed("ask", "run_tests") && !isToolAllowed("plan", "run_tests") && isToolAllowed("agent", "run_tests"));
   assert.ok(isToolAllowed("ask", "code_nav") && isToolAllowed("plan", "code_nav") && isToolAllowed("agent", "code_nav"));
 });
+
+test("Plan asks for the sections that a saved plan is read by", () => {
+  const { instructions } = MODES.plan;
+  const headings = ["## Goal", "## Files", "## Steps", "## Verify", "## Risks", "## Open questions"];
+  const places = headings.map((heading) => instructions.indexOf(heading));
+  assert.ok(places.every((place) => place >= 0));
+  assert.deepEqual(places, [...places].sort((a, b) => a - b), "they stay in order");
+});

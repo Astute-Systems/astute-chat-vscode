@@ -2,9 +2,9 @@ import * as crypto from "crypto";
 import * as vscode from "vscode";
 import { ChangeRequest, decide } from "./approvals";
 import { ChangeJournal } from "./changeJournal";
-import { activityLine, ChatContext, ChatContextStore, cleanSummary, EMPTY_CONTEXT, recentActivity } from "./chatContext";
+import { activityLine, ChatContext, ChatContextStore, cleanSummary, EMPTY_CONTEXT, planTitle, recentActivity } from "./chatContext";
 import { ChatService, HistoryBudget, PreparedHistory, SummaryTarget } from "./chatService";
-import { capText, messagesBeforeRecent, messagesToSummarise, notesSection, notesTokens, recentWorkNote, summarySection, summaryTokens } from "./chatSummary";
+import { capText, messagesBeforeRecent, messagesToSummarise, notesSection, notesTokens, planSection, planTokens, recentWorkNote, summarySection, summaryTokens } from "./chatSummary";
 import { estimateTokens } from "./chatEngine";
 import { getChatSettings } from "./config";
 import type { ConnectionMonitor } from "./connection";
@@ -12,7 +12,7 @@ import { IMAGE_FILE } from "./contentGuard";
 import { openWorkspaceFile, readDroppedImages, resolveFiles, workspacePath } from "./fileResolver";
 import { buildRequestContext, OpenFile } from "./contextFiles";
 import { rankFiles, withFolders } from "./filePicker";
-import { ApprovalDecision, ApprovalPrompt, AttachedImage, ChatListing, FromWebview, ToWebview, TranscriptEntry, ViewState } from "./messages";
+import { ActivePlan, ApprovalDecision, ApprovalPrompt, AttachedImage, ChatListing, FromWebview, ToWebview, TranscriptEntry, ViewState } from "./messages";
 import { ApprovalLevel, ChatMode, isApprovalLevel, isChatMode, MODES } from "./modes";
 import { ChatMessage, OllamaError } from "./ollamaClient";
 import { isSensitivePath } from "./pathGuard";
@@ -27,6 +27,8 @@ const APPROVAL_KEY = "astuteChat.approval";
 const PROPOSED_SCHEME = "astute-proposed";
 const SUMMARY_KEY = "astuteChat.summary";
 const CHAT_ID_KEY = "astuteChat.chatId";
+const ACTIVE_PLAN_KEY = "astuteChat.activePlan";
+const IMPLEMENT_PROMPT = "Carry out the approved plan in your system prompt. Start with step 1 and work through the steps in order, checking each one as the plan says.";
 const REVIEW_MODE_KEY = "astuteChat.reviewMode";
 const OPEN_REVIEW_KEY = "astuteChat.openReview";
 const CHATS_KEY = "astuteChat.chats";
@@ -54,6 +56,13 @@ interface SavedChat extends ChatListing {
   chatId?: string;
   transcript: TranscriptEntry[];
   summary?: SummaryState;
+  activePlan?: ActivePlan;
+}
+
+/** A message for the model, and where it came from in the transcript. */
+interface HistoryEntry {
+  index: number;
+  message: ChatMessage;
 }
 
 /** Large tool calls would fill workspace storage, so saved chats keep only their names. */
@@ -122,6 +131,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private readonly contextFiles: ChatContextStore;
   private updatingContext = false;
   private contextUse: number | undefined;
+  private activePlan: ActivePlan | undefined;
   private fileList: { items: string[]; at: number } | undefined;
   private nextApprovalId = 1;
   private active: TranscriptEntry | undefined;
@@ -142,6 +152,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.mode = isChatMode(savedMode) ? savedMode : "ask";
     this.summary = context.workspaceState.get(SUMMARY_KEY);
     this.chatId = context.workspaceState.get<string>(CHAT_ID_KEY) ?? crypto.randomUUID();
+    this.activePlan = context.workspaceState.get<ActivePlan>(ACTIVE_PLAN_KEY);
     this.contextFiles = new ChatContextStore((context.storageUri ?? context.globalStorageUri).fsPath);
     this.chats = context.workspaceState.get<SavedChat[]>(CHATS_KEY, []);
     this.reviewMode = context.workspaceState.get<boolean>(REVIEW_MODE_KEY, false);
@@ -256,6 +267,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       pinned: this.pinned.map((item) => item.shown),
       status: this.status,
       contextUse: this.contextUse,
+      activePlan: this.activePlan,
     };
   }
 
@@ -271,6 +283,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
     await this.context.workspaceState.update(SUMMARY_KEY, this.summary);
     await this.context.workspaceState.update(CHAT_ID_KEY, this.chatId);
+    await this.context.workspaceState.update(ACTIVE_PLAN_KEY, this.activePlan);
     await this.context.workspaceState.update(STORAGE_KEY, this.transcript);
     this.chatsChanged.fire();
   }
@@ -355,10 +368,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         await this.setMode(message.mode);
         break;
       case "implementPlan":
-        if (!this.active) {
-          await this.setMode("agent");
-          await this.startTurn("Implement the plan above.", "Implement the plan above.", undefined);
-        }
+        await this.implementPlan(message.planId);
+        break;
+      case "openPlan":
+        await this.openPlan(message.planId);
+        break;
+      case "clearPlan":
+        this.activePlan = undefined;
+        await this.persist();
+        this.postState();
         break;
       case "setServer":
         await vscode.commands.executeCommand("astuteChat.setServerAddress");
@@ -626,7 +644,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     const id = Math.max(0, ...this.chats.map((chat) => chat.id)) + 1;
-    this.chats.push({ id, chatId: this.chatId, title, updatedAt: Date.now(), transcript: this.transcript.map(compactEntry), summary: this.summary });
+    this.chats.push({ id, chatId: this.chatId, title, updatedAt: Date.now(), transcript: this.transcript.map(compactEntry), summary: this.summary, activePlan: this.activePlan });
     this.chats.sort((a, b) => b.updatedAt - a.updatedAt);
     for (const chat of this.chats.splice(MAX_SAVED_CHATS)) {
       void this.deleteContextFile(chat);
@@ -648,6 +666,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.transcript = chat.transcript;
     this.summary = chat.summary;
     this.chatId = chat.chatId ?? crypto.randomUUID();
+    this.activePlan = chat.activePlan;
     this.contextUse = undefined;
     this.pinned = [];
     this.hiddenOpenFile = undefined;
@@ -680,6 +699,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       this.chatId = crypto.randomUUID();
     }
     this.contextUse = undefined;
+    this.activePlan = undefined;
     this.chatKey += 1;
     this.transcript = [];
     this.pinned = [];
@@ -748,11 +768,55 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     return turn;
   }
 
-  private historyBetween(start: number, end: number): ChatMessage[] {
-    return this.transcript
-      .slice(start, end)
-      .filter((entry) => (entry.role === "user" || entry.role === "assistant") && !entry.error && entry.content)
-      .map((entry) => ({ role: entry.role as "user" | "assistant", content: `${entry.content}${entry.context ?? ""}` }));
+  /** A plan that's in the system prompt is left out here, or it would be sent twice. */
+  private historyBetween(start: number, end: number, pinnedPlan?: string): HistoryEntry[] {
+    return this.transcript.flatMap((entry, index) =>
+      index >= start && index < end && (entry.role === "user" || entry.role === "assistant") && !entry.error && entry.content && (!pinnedPlan || entry.planId !== pinnedPlan)
+        ? [{ index, message: { role: entry.role, content: `${entry.content}${entry.context ?? ""}` } }]
+        : [],
+    );
+  }
+
+  private planEntry(planId: string): TranscriptEntry | undefined {
+    return this.transcript.find((entry) => entry.planId === planId);
+  }
+
+  /** The saved file, with any edits, or the reply itself if the file has gone. */
+  private async planText(planId: string): Promise<string | undefined> {
+    return (await this.contextFiles.readPlan(this.chatId, planId)) ?? this.planEntry(planId)?.content;
+  }
+
+  private async savePlan(entry: TranscriptEntry): Promise<void> {
+    entry.planId = crypto.randomUUID();
+    await this.contextFiles.writePlan(this.chatId, entry.planId, entry.content).catch((error: unknown) => this.log.warn(`Could not save the plan: ${String(error)}`));
+  }
+
+  /** Takes an id from the panel, so it only uses ids this chat really has. */
+  private async implementPlan(planId: string): Promise<void> {
+    const plan = this.busy || !this.planEntry(planId) ? undefined : await this.planText(planId);
+    if (!plan?.trim()) {
+      return;
+    }
+    this.activePlan = { id: planId, title: planTitle(plan) };
+    await this.persist();
+    await this.setMode("agent");
+    await this.startTurn(IMPLEMENT_PROMPT, "Implement the plan.", undefined);
+  }
+
+  async openPlan(planId: string): Promise<void> {
+    const entry = this.planEntry(planId);
+    if (!entry) {
+      return;
+    }
+    try {
+      if ((await this.contextFiles.readPlan(this.chatId, planId)) === undefined) {
+        await this.contextFiles.writePlan(this.chatId, planId, entry.content);
+      }
+      await vscode.window.showTextDocument(vscode.Uri.file(this.contextFiles.planFile(this.chatId, planId)));
+    } catch (error) {
+      this.log.warn(`Could not open the plan: ${String(error)}`);
+      void vscode.window.showErrorMessage("Could not open the plan. Astute Chat: Show Logs has the details.");
+    }
   }
 
   private get busy(): boolean {
@@ -786,19 +850,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   /** Replaces older turns with a summary. If that fails it returns undefined, and the turns stay in the history. */
-  private async summariseMessages(start: number, end: number, history: ChatMessage[], count: number, earlier: string, target: SummaryTarget, signal: AbortSignal): Promise<ChatContext | undefined> {
-    // Finds the transcript position just after the last summarised message.
-    let seen = 0;
-    let keepFrom = start;
-    while (keepFrom < end && seen < count) {
-      const entry = this.transcript[keepFrom];
-      if ((entry.role === "user" || entry.role === "assistant") && !entry.error && entry.content) {
-        seen += 1;
-      }
-      keepFrom += 1;
-    }
+  private async summariseMessages(entries: HistoryEntry[], count: number, earlier: string, target: SummaryTarget, signal: AbortSignal): Promise<ChatContext | undefined> {
+    // The transcript position just after the last summarised message.
+    const keepFrom = count ? entries[count - 1].index + 1 : (this.summary?.upTo ?? 0);
     const limit = summaryTokens(target.usableLimit);
-    const text = await this.service.summarise(count ? history.slice(0, count) : history, capText(earlier, limit) || undefined, target, signal);
+    const text = await this.service.summarise(entries.slice(0, count || entries.length).map((entry) => entry.message), capText(earlier, limit) || undefined, target, signal);
     const summary = text ? cleanSummary(text, limit) : "";
     if (!summary || signal.aborted) {
       return undefined;
@@ -814,25 +870,40 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private contextSections(context: ChatContext, usableLimit: number): { systemSection?: string; requestNote: string } {
-    const sections = [context.summary && summarySection(capText(context.summary, summaryTokens(usableLimit))), context.notes && notesSection(capText(context.notes, notesTokens(usableLimit)))];
+  private contextSections(context: ChatContext, usableLimit: number, plan?: string): { systemSection?: string; requestNote: string } {
+    const sections = [plan, context.summary && summarySection(capText(context.summary, summaryTokens(usableLimit))), context.notes && notesSection(capText(context.notes, notesTokens(usableLimit)))];
     return { systemSection: sections.filter(Boolean).join("\n\n") || undefined, requestNote: recentWorkNote(recentActivity(context)) };
   }
 
   /** Summarises older turns before they're lost to the context limit, then picks what this turn sends. */
-  private async prepareHistory(end: number, signal: AbortSignal, budget: HistoryBudget): Promise<PreparedHistory> {
+  private async prepareHistory(end: number, mode: ChatMode, onNotice: (text: string) => void, signal: AbortSignal, budget: HistoryBudget): Promise<PreparedHistory> {
     let context = await this.loadContext();
+    const plan = mode === "agent" ? await this.pinnedPlan(budget.usableLimit, onNotice) : undefined;
+    const pinned = plan === undefined ? undefined : this.activePlan?.id;
     const start = this.summary?.upTo ?? 0;
-    const history = this.historyBetween(start, end);
-    const { systemSection, requestNote } = this.contextSections(context, budget.usableLimit);
+    const entries = this.historyBetween(start, end, pinned);
+    const { systemSection, requestNote } = this.contextSections(context, budget.usableLimit, plan);
     const reserved = budget.reservedTokens + estimateTokens(systemSection ?? "") + estimateTokens(requestNote);
-    const count = messagesToSummarise(history, budget.usableLimit, reserved);
+    const count = messagesToSummarise(entries.map((entry) => entry.message), budget.usableLimit, reserved);
     if (count) {
       this.status = "Summarising earlier chat…";
       this.post({ type: "status", text: this.status });
-      context = (await this.summariseMessages(start, end, history, count, context.summary, budget, signal)) ?? context;
+      context = (await this.summariseMessages(entries, count, context.summary, budget, signal)) ?? context;
     }
-    return { history: this.historyBetween(this.summary?.upTo ?? 0, end), ...this.contextSections(context, budget.usableLimit) };
+    return { history: this.historyBetween(this.summary?.upTo ?? 0, end, pinned).map((entry) => entry.message), ...this.contextSections(context, budget.usableLimit, plan) };
+  }
+
+  /** The active plan as a system prompt section. A plan cut short is worth saying so, because its last steps are missing. */
+  private async pinnedPlan(usableLimit: number, onNotice: (text: string) => void): Promise<string | undefined> {
+    const text = this.activePlan && (await this.planText(this.activePlan.id));
+    if (!text?.trim()) {
+      return undefined;
+    }
+    const limit = planTokens(usableLimit);
+    if (estimateTokens(text) > limit) {
+      onNotice("The plan is too long for the context window, so the model can't see all of it. Shorten it with Edit plan, or increase astuteChat.numCtx.");
+    }
+    return planSection(capText(text, limit));
   }
 
   /** Opens the file for reading or editing, creating it so notes can be written before the first message. */
@@ -866,12 +937,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         const context = await this.loadContext();
         const start = this.summary?.upTo ?? 0;
         const end = this.transcript.length;
-        const history = this.historyBetween(start, end);
-        if (!history.length) {
+        const entries = this.historyBetween(start, end);
+        if (!entries.length) {
           return "There's nothing new to add to the chat context.";
         }
         const target = await this.service.summaryTarget(this.mode);
-        const updated = await this.summariseMessages(start, end, history, messagesBeforeRecent(history), context.summary, target, abort.signal);
+        const updated = await this.summariseMessages(entries, messagesBeforeRecent(entries.map((entry) => entry.message)), context.summary, target, abort.signal);
         return updated ? "Updated the chat context." : abort.signal.aborted ? undefined : "Could not update the chat context. Astute Chat: Show Logs has the details.";
       })
       .then(
@@ -922,7 +993,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     try {
       const result = await this.service.runTurn({
         prompt: `${prompt}${selection?.context ?? ""}${requestContext}`,
-        prepareHistory: (budget) => this.prepareHistory(end, abort.signal, budget),
+        prepareHistory: (budget) =>
+          this.prepareHistory(
+            end,
+            mode,
+            (text) => {
+              active.notices?.push(text);
+              this.post({ type: "notice", text });
+            },
+            abort.signal,
+            budget,
+          ),
         mode,
         skill,
         images: images.map(({ name, data }) => ({ name, data })),
@@ -974,6 +1055,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       // Keeps what the images showed, so follow-up questions can use it.
       user.context = `${user.context ?? ""}${result.imageText}` || undefined;
       active.summary = `${MODES[mode].label} · ${result.model} · ${result.summary}`;
+      if (mode === "plan" && !result.cancelled && active.content.trim()) {
+        await this.savePlan(active);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Something went wrong.";
       this.log.error(`Chat failed: ${error instanceof OllamaError ? error.kind : "unknown"}: ${message}`);

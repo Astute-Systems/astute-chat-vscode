@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
-import { activityLine, ChatContextStore, cleanSummary, parseContext, recentActivity, renderContext } from "../chatContext";
+import { activityLine, ChatContextStore, cleanSummary, parseContext, planTitle, recentActivity, renderContext } from "../chatContext";
 
 const report = { created: ["new.ts"], edited: ["old.ts"], commands: 2, failedCommands: 1 };
 
@@ -97,4 +97,23 @@ test("removes a chat's file with its folder", async () => {
   await files.remove("chat");
   await files.remove("chat");
   await assert.rejects(fs.stat(path.dirname(files.file("chat"))));
+});
+
+test("names a plan after its goal", () => {
+  assert.equal(planTitle("## Goal\nAdd a cache to the client.\n\n## Steps\n1. x"), "Add a cache to the client.");
+  assert.equal(planTitle("# goal\n\n- Add a cache"), "Add a cache");
+  assert.equal(planTitle("1. Just some steps"), "Just some steps");
+  assert.equal(planTitle("## Steps"), "Steps");
+  assert.equal(planTitle("   "), "Plan");
+  assert.ok(planTitle(`## Goal\n${"x".repeat(200)}`).length <= 60);
+});
+
+test("keeps plans apart, and leaves no temporary file", async () => {
+  const files = await store();
+  await files.writePlan("chat", "one", "first plan");
+  await files.writePlan("chat", "two", "second plan");
+  assert.equal(await files.readPlan("chat", "one"), "first plan");
+  assert.equal(await files.readPlan("chat", "two"), "second plan");
+  assert.equal(await files.readPlan("chat", "three"), undefined);
+  assert.deepEqual((await fs.readdir(path.dirname(files.planFile("chat", "one")))).sort(), ["plan-one.md", "plan-two.md"]);
 });

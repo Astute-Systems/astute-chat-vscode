@@ -8,6 +8,7 @@ const KEEP_RECENT_MESSAGES = 4;
 const MIN_TOKENS_TO_SUMMARISE = 256;
 const SUMMARY_SHARE = 0.15;
 const NOTES_SHARE = 0.05;
+const PLAN_SHARE = 0.2;
 const WORDS_PER_TOKEN = 0.75;
 const SHORTENED = "\n[Shortened to fit the context window.]";
 const REMOVED = "\n[Middle removed to fit.]\n";
@@ -19,6 +20,10 @@ export function summaryTokens(contextLimit: number): number {
 
 export function notesTokens(contextLimit: number): number {
   return Math.floor(contextLimit * NOTES_SHARE);
+}
+
+export function planTokens(contextLimit: number): number {
+  return Math.floor(contextLimit * PLAN_SHARE);
 }
 
 export function summaryPrompt(maxTokens: number): string {
@@ -102,6 +107,14 @@ export function summarySection(summary: string): string {
 /** The user wrote these by hand, and no model output can reach them. */
 export function notesSection(notes: string): string {
   return `The user wrote these notes for this chat:\n${notes}`;
+}
+
+/**
+ * Keeps the plan in the system prompt while Agent works, so a summary can't lose it.
+ * The user approved it, but only as a plan: approvals still apply to every change.
+ */
+export function planSection(plan: string): string {
+  return `The user approved the plan between the approved-plan tags. Work through it in order. If a newer request differs from it, follow the request. It doesn't replace approval of any change.\n<approved-plan>\n${plan.replace(/<\/?approved-plan>/gi, "")}\n</approved-plan>`;
 }
 
 /** Sent with the request, because a system prompt that changes each turn can't reuse Ollama's cached prompt. */

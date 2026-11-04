@@ -11,6 +11,7 @@ const MAX_ACTIVITY_LINES = 40;
 const RECENT_ACTIVITY_LINES = 8;
 const MAX_LINE_CHARS = 300;
 const MAX_COMMAND_CHARS = 60;
+const MAX_PLAN_TITLE_CHARS = 60;
 
 export interface ChatContext {
   /** The model's summary. Hand edits to it are kept, and sent to the model. */
@@ -95,6 +96,14 @@ export function activityLine(changes: ChangeReport | undefined, tools: readonly 
   return parts.length ? `- ${oneLine(parts.join("; "), MAX_LINE_CHARS)}` : undefined;
 }
 
+/** A short name for a plan: its goal, or failing that its first line of text. */
+export function planTitle(plan: string): string {
+  const lines = plan.split("\n").map((line) => line.trim());
+  const goal = lines.findIndex((line) => /^#+\s*goal\b/i.test(line));
+  const first = lines.slice(goal + 1).find((line) => line && !line.startsWith("#")) ?? lines.find(Boolean) ?? "Plan";
+  return oneLine(first.replace(/^[-*\d.\s#]+/, ""), MAX_PLAN_TITLE_CHARS) || "Plan";
+}
+
 export function recentActivity(context: ChatContext): string[] {
   return context.activity.slice(-RECENT_ACTIVITY_LINES);
 }
@@ -111,6 +120,27 @@ export class ChatContextStore {
     return path.join(this.root, "chats", chatId, FILE_NAME);
   }
 
+  /** Each plan keeps its own file, so choosing an older one can't pick up a newer one. */
+  planFile(chatId: string, planId: string): string {
+    return path.join(path.dirname(this.file(chatId)), `plan-${planId}.md`);
+  }
+
+  private async write(file: string, text: string): Promise<void> {
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    const temporary = `${file}.tmp`;
+    await fs.writeFile(temporary, text);
+    await fs.rename(temporary, file);
+  }
+
+  writePlan(chatId: string, planId: string, plan: string): Promise<void> {
+    return this.write(this.planFile(chatId, planId), plan);
+  }
+
+  /** Undefined if the file doesn't exist. Read each time, so hand edits count. */
+  readPlan(chatId: string, planId: string): Promise<string | undefined> {
+    return fs.readFile(this.planFile(chatId, planId), "utf8").catch(() => undefined);
+  }
+
   /** Undefined if the file doesn't exist. */
   async read(chatId: string): Promise<ChatContext | undefined> {
     const text = await fs.readFile(this.file(chatId), "utf8").catch(() => undefined);
@@ -120,11 +150,7 @@ export class ChatContextStore {
   /** Reads the file at the last moment, so edits made during a slow summary survive. */
   async update(chatId: string, change: (context: ChatContext) => ChatContext): Promise<ChatContext> {
     const context = change((await this.read(chatId)) ?? EMPTY_CONTEXT);
-    const file = this.file(chatId);
-    await fs.mkdir(path.dirname(file), { recursive: true });
-    const temporary = `${file}.tmp`;
-    await fs.writeFile(temporary, renderContext(context));
-    await fs.rename(temporary, file);
+    await this.write(this.file(chatId), renderContext(context));
     return context;
   }
 

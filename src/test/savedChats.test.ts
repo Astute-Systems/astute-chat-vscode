@@ -475,3 +475,204 @@ test("a saved chat from an older version has no context file to remove", async (
   await provider.deleteChat(chats[0].id);
   assert.equal(provider.chatList.length, 0);
 });
+
+const PLAN_ONE = "## Goal\nAdd a cache\n\n## Steps\n1. Edit cache.ts";
+const PLAN_TWO = "## Goal\nRename the logger\n\n## Steps\n1. Edit log.ts";
+
+/** Finishes a plan with each reply in turn, and returns the replies that became plans. */
+async function makePlans(provider: { receive(message: never): Promise<void>; send(text: string): Promise<void> }, options: { reply?: string }, store: Map<string, unknown>, plans: string[]): Promise<TranscriptEntry[]> {
+  await provider.receive({ type: "selectMode", mode: "plan" } as never);
+  for (const plan of plans) {
+    options.reply = plan;
+    await provider.send("plan this");
+  }
+  return (store.get("astuteChat.transcript") as TranscriptEntry[]).filter((entry) => entry.planId);
+}
+
+function planPath(storage: string, planId: string): string {
+  return path.join(path.dirname(contextFile(storage)), `plan-${planId}.md`);
+}
+
+test("a finished plan is saved as its own file", async () => {
+  const options = { reply: "short" };
+  const { service } = contextService(options);
+  const { provider, storage, store } = makeProvider(service);
+  const [one, two] = await makePlans(provider as never, options, store, [PLAN_ONE, PLAN_TWO]);
+  assert.notEqual(one.planId, two.planId);
+  assert.equal(fs.readFileSync(planPath(storage, one.planId ?? ""), "utf8"), PLAN_ONE);
+  assert.equal(fs.readFileSync(planPath(storage, two.planId ?? ""), "utf8"), PLAN_TWO);
+});
+
+test("only Plan replies become plans", async () => {
+  const { service } = contextService({ reply: PLAN_ONE });
+  const { provider, store } = makeProvider(service);
+  await provider.send("a question");
+  assert.equal((store.get("astuteChat.transcript") as TranscriptEntry[]).some((entry) => entry.planId), false);
+});
+
+test("a stopped plan isn't offered for implementing", async () => {
+  const { provider, store } = makeProvider({
+    commandSkills: () => [],
+    runTurn: async ({ events }: ContextTurn) => {
+      events.onContent("half a plan");
+      return { model: "m", summary: "Stopped", imageText: "", cancelled: true };
+    },
+  });
+  await provider.receive({ type: "selectMode", mode: "plan" });
+  await provider.send("plan this");
+  assert.equal((store.get("astuteChat.transcript") as TranscriptEntry[]).some((entry) => entry.planId), false);
+});
+
+test("Implement on an older plan carries out that plan, not the newest", async () => {
+  const options = { reply: "short" };
+  const { service, turns } = contextService(options);
+  const { provider, store } = makeProvider(service);
+  const [older] = await makePlans(provider as never, options, store, [PLAN_ONE, PLAN_TWO]);
+  options.reply = "done";
+  await provider.receive({ type: "implementPlan", planId: older.planId ?? "" });
+  assert.match(turns.at(-1)?.systemSection ?? "", /<approved-plan>\n## Goal\nAdd a cache/);
+  assert.doesNotMatch(turns.at(-1)?.systemSection ?? "", /Rename the logger/);
+  assert.deepEqual((store.get("astuteChat.activePlan") as { title: string }).title, "Add a cache");
+  assert.equal(store.get("astuteChat.mode"), "agent");
+});
+
+test("a pinned plan isn't sent twice, and the other plans stay in the history", async () => {
+  const options = { reply: "short" };
+  const { service, turns } = contextService(options);
+  const { provider, store } = makeProvider(service);
+  const [older] = await makePlans(provider as never, options, store, [PLAN_ONE, PLAN_TWO]);
+  await provider.receive({ type: "implementPlan", planId: older.planId ?? "" });
+  const history = turns.at(-1)?.history.map((message) => message.content) ?? [];
+  assert.equal(history.includes(PLAN_ONE), false);
+  assert.equal(history.includes(PLAN_TWO), true);
+});
+
+test("edits to a plan are what Agent receives, on every turn", async () => {
+  const options = { reply: "short" };
+  const { service, turns } = contextService(options);
+  const { provider, storage, store } = makeProvider(service);
+  const [plan] = await makePlans(provider as never, options, store, [PLAN_ONE]);
+  fs.writeFileSync(planPath(storage, plan.planId ?? ""), PLAN_ONE.replace("cache.ts", "lru.ts"));
+  await provider.receive({ type: "implementPlan", planId: plan.planId ?? "" });
+  assert.match(turns.at(-1)?.systemSection ?? "", /Edit lru\.ts/);
+  fs.writeFileSync(planPath(storage, plan.planId ?? ""), PLAN_ONE.replace("cache.ts", "store.ts"));
+  await provider.send("carry on");
+  assert.match(turns.at(-1)?.systemSection ?? "", /Edit store\.ts/);
+});
+
+test("a plan survives the chat being summarised", async () => {
+  const options = { reply: LONG };
+  const { service, turns, summarised } = contextService(options);
+  const { provider, store } = makeProvider(service);
+  const [plan] = await makePlans(provider as never, options, store, [PLAN_ONE]);
+  await provider.receive({ type: "implementPlan", planId: plan.planId ?? "" });
+  await chatLongEnoughToSummarise(provider);
+  assert.ok(summarised.length > 0);
+  assert.match(turns.at(-1)?.systemSection ?? "", /<approved-plan>\n## Goal\nAdd a cache/);
+});
+
+test("skipping a pinned plan keeps the summary's place in the transcript", async () => {
+  const options = { reply: "short" };
+  const { service, summarised } = contextService(options);
+  const { provider, store } = makeProvider(service);
+  const [plan] = await makePlans(provider as never, options, store, [PLAN_ONE]);
+  await provider.receive({ type: "implementPlan", planId: plan.planId ?? "" });
+  await chatLongEnoughToSummarise(provider);
+  const { upTo } = store.get("astuteChat.summary") as { upTo: number };
+  const transcript = store.get("astuteChat.transcript") as TranscriptEntry[];
+  assert.equal(transcript[upTo - 1].role === "user" || transcript[upTo - 1].role === "assistant", true);
+  assert.ok(summarised[0].count > 0);
+  assert.ok(upTo > summarised[0].count, "the plan's own entry is passed over, not counted as a message");
+});
+
+test("the plan is only pinned in Agent mode", async () => {
+  const options = { reply: "short" };
+  const { service, turns } = contextService(options);
+  const { provider, store } = makeProvider(service);
+  const [plan] = await makePlans(provider as never, options, store, [PLAN_ONE]);
+  await provider.receive({ type: "implementPlan", planId: plan.planId ?? "" });
+  await provider.receive({ type: "selectMode", mode: "ask" });
+  await provider.send("a question");
+  assert.equal(turns.at(-1)?.systemSection, undefined);
+  assert.equal(turns.at(-1)?.history.some((message) => message.content === PLAN_ONE), true);
+});
+
+test("removing the plan stops it being sent", async () => {
+  const options = { reply: "short" };
+  const { service, turns } = contextService(options);
+  const { provider, store } = makeProvider(service);
+  const [plan] = await makePlans(provider as never, options, store, [PLAN_ONE]);
+  await provider.receive({ type: "implementPlan", planId: plan.planId ?? "" });
+  await provider.receive({ type: "clearPlan" });
+  await provider.send("next");
+  assert.equal(turns.at(-1)?.systemSection, undefined);
+  assert.equal(store.get("astuteChat.activePlan"), undefined);
+});
+
+test("a saved chat keeps its plan, and a new chat starts with none", async () => {
+  const options = { reply: "short" };
+  const { service, turns } = contextService(options);
+  const { provider, store } = makeProvider(service);
+  const [plan] = await makePlans(provider as never, options, store, [PLAN_ONE]);
+  await provider.receive({ type: "implementPlan", planId: plan.planId ?? "" });
+  await provider.clear();
+  await provider.send("something else");
+  assert.equal(turns.at(-1)?.systemSection, undefined);
+  await provider.clear();
+  const saved = provider.chatList.find((chat) => chat.title === "plan this");
+  await provider.openSavedChat(saved?.id ?? 0);
+  await provider.send("carry on");
+  assert.match(turns.at(-1)?.systemSection ?? "", /Add a cache/);
+});
+
+test("falls back to the reply if the plan's file has gone, and restores it on opening", async () => {
+  const options = { reply: "short" };
+  const { service, turns } = contextService(options);
+  const { provider, storage, store } = makeProvider(service);
+  const [plan] = await makePlans(provider as never, options, store, [PLAN_ONE]);
+  const file = planPath(storage, plan.planId ?? "");
+  fs.rmSync(file);
+  await provider.receive({ type: "implementPlan", planId: plan.planId ?? "" });
+  assert.match(turns.at(-1)?.systemSection ?? "", /Add a cache/);
+  await provider.openPlan(plan.planId ?? "");
+  assert.equal(opened.at(-1), file);
+  assert.equal(fs.readFileSync(file, "utf8"), PLAN_ONE);
+});
+
+test("ignores a plan id this chat doesn't have, which could otherwise reach a path", async () => {
+  const options = { reply: "short" };
+  const { service, turns } = contextService(options);
+  const { provider, storage, store } = makeProvider(service);
+  await makePlans(provider as never, options, store, [PLAN_ONE]);
+  const outside = "../../../secret";
+  fs.writeFileSync(path.join(path.dirname(contextFile(storage)), `plan-${outside}.md`), "a real file outside the chat's folder");
+  const before = turns.length;
+  const count = opened.length;
+  await provider.receive({ type: "implementPlan", planId: outside });
+  await provider.receive({ type: "openPlan", planId: outside });
+  assert.equal(turns.length, before);
+  assert.equal(opened.length, count);
+  assert.equal(store.get("astuteChat.mode"), "plan");
+});
+
+test("warns when a plan is too long for the model to see all of it", async () => {
+  const options = { reply: "short" };
+  const { service, turns } = contextService(options);
+  const { provider, store } = makeProvider(service);
+  const [plan] = await makePlans(provider as never, options, store, [`${PLAN_ONE}\n${"- step\n".repeat(4000)}`]);
+  await provider.receive({ type: "implementPlan", planId: plan.planId ?? "" });
+  const reply = (store.get("astuteChat.transcript") as TranscriptEntry[]).at(-1);
+  assert.match(reply?.notices?.join() ?? "", /too long for the context window/);
+  assert.ok((turns.at(-1)?.systemSection?.length ?? 0) < 8192);
+});
+
+test("deleting a chat removes its plans", async () => {
+  const options = { reply: "short" };
+  const { service } = contextService(options);
+  const { provider, storage, store } = makeProvider(service);
+  const [plan] = await makePlans(provider as never, options, store, [PLAN_ONE]);
+  const file = planPath(storage, plan.planId ?? "");
+  await provider.clear();
+  await provider.deleteChat(provider.chatList[0].id);
+  assert.equal(fs.existsSync(file), false);
+});

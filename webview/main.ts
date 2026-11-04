@@ -314,9 +314,13 @@ function buildAssistant(entry: TranscriptEntry): ActiveView {
   if (entry.summary && !entry.error) {
     create("div", "eol", root, "End Of Line");
   }
-  if (entry.mode === "plan" && entry.summary && !entry.summary.includes("Stopped") && !entry.error) {
-    const implement = create("button", "implement", root, "Implement in Agent mode");
-    implement.addEventListener("click", () => vscode.postMessage({ type: "implementPlan" }));
+  const { planId } = entry;
+  if (planId && !entry.error) {
+    const actions = create("div", "plan-actions", root);
+    const implement = create("button", "implement", actions, "Implement in Agent mode");
+    implement.addEventListener("click", () => vscode.postMessage({ type: "implementPlan", planId }));
+    const edit = create("button", "implement secondary", actions, "Edit plan");
+    edit.addEventListener("click", () => vscode.postMessage({ type: "openPlan", planId }));
   }
   return { entry, root, body, thinkingBody, thinking, meta };
 }
@@ -592,7 +596,16 @@ function setHistoryOpen(open: boolean): void {
 function renderContext(state: ViewState): void {
   const items = [...(state.openFile ? [state.openFile] : []), ...state.pinned];
   contextRow.replaceChildren();
-  contextRow.hidden = items.length === 0;
+  contextRow.hidden = items.length === 0 && !state.activePlan;
+  if (state.activePlan) {
+    const chip = create("div", "context-chip", contextRow);
+    chip.title = "Agent keeps this plan in view. Remove it when the work is done.";
+    create("span", "", chip, `Plan: ${state.activePlan.title}`);
+    const remove = create("button", "context-remove", chip, "×");
+    remove.setAttribute("type", "button");
+    remove.setAttribute("aria-label", "Stop following the plan");
+    remove.addEventListener("click", () => vscode.postMessage({ type: "clearPlan" }));
+  }
   for (const item of items) {
     const chip = create("div", "context-chip", contextRow);
     chip.title = `${item} is included with your next message`;

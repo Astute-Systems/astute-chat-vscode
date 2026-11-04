@@ -47,7 +47,7 @@ Ollama also offers cloud models, with names ending in `:cloud`, which run on Oll
 | Plan | Researches the workspace and writes a plan | No |
 | Agent | Edits files and runs commands to finish a task | Yes, with your approval |
 
-Switch modes with the selector, or start a message with `/ask`, `/plan` or `/agent`. After a plan, select **Implement in Agent mode** to carry it out.
+Switch modes with the selector, or start a message with `/ask`, `/plan` or `/agent`. After a plan, select **Edit plan** to change it, or **Implement in Agent mode** to carry it out. Each plan is saved as its own file in the extension's storage. Agent receives your saved edits, and keeps the plan in view while it works, so a long chat can't summarise it away. The plan appears above the message box, and selecting × there stops Agent following it.
 
 In every mode, models can run read-only checks without asking, such as `git status`, `git log`, `git grep`, `sed -n 10,20p`, `uname -a`, `df -h` and `ollama list`. Ask and Plan stop there. Agent can also run any command, such as `git commit`, builds and service restarts, subject to your approval level. Commands can't answer prompts, so `sudo` works only if it needs no password.
 

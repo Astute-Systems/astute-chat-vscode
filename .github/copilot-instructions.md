@@ -56,6 +56,8 @@ Do not use `enabledApiProposals`. Proposed APIs work only in Insiders and must n
 - The Agent change report must come from `ChangeJournal`, never from the model. Undo must skip files that changed since.
 - Keep chat summaries in the system prompt, which is never trimmed, and inside the size limit from `summaryTokens`, marked as data with `summarySection`. They can quote files and web pages.
 - `context.txt` must stay in extension storage, never the workspace: Ask and Plan must change nothing there, it could be committed, and a file from a cloned repository would reach the prompt. Only the extension writes it, so don't give models a tool for it. Model output must pass through `cleanSummary`, so it can't reach Notes or the activity record.
+- Plans are saved by the extension beside `context.txt`, one file per plan, and never by a model. The panel sends plan ids, so check them against the transcript with `planEntry` before they reach a path. Keep `MODES.plan` and its heading test in step.
+- Only Agent gets the active plan in its system prompt, inside the limit from `planTokens`. Leave that plan out of the history too, or it's sent twice.
 - Decide on summaries in `prepareHistory`, once the model and full prompt size are known. The trigger must fire before `fitToContext` starts removing messages.
 - Facts that change every turn go with the request, not the system prompt, so Ollama can reuse its cached prompt.
 - Do not run real-model tests alongside other work. Contention caused false timeouts.

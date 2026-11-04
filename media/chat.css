@@ -346,6 +346,12 @@ textarea:focus {
   margin-top: 8px;
 }
 
+.plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 button.compact {
   flex: none;
   padding: 3px 8px;
