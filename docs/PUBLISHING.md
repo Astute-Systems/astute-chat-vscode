@@ -4,13 +4,10 @@ This guide is for Astute Systems staff who release the extension to the VS Code 
 
 ## Before the first release
 
-1. **Commit the code.** The repository has no commits yet. Decide whether `test/` belongs in it first, because it contains build experiments.
-2. **Make the repository public.** The Marketplace page loads README images and links from GitHub, so they break while the repository is private. Alternatively, host the images on astutesys.com and package with `--baseImagesUrl`.
-3. **Set up Trusted Publishing.** Global Azure DevOps personal access tokens retire on 1 December 2026, so don't build on them.
+1. **Set up Trusted Publishing.** Global Azure DevOps personal access tokens retire on 1 December 2026, so don't build on them.
    1. Sign in to the [publisher management page](https://marketplace.visualstudio.com/manage) and open `AstuteSystems`.
    2. Select **Trusted Publishing**, then expand **Create**.
    3. Set the repository owner to `Astute-Systems`, the repository to `astute-chat-vscode` and the workflow to `publish.yml`. Leave the environment empty.
-   4. If the repository is still private, run the workflow within 48 hours. The first successful run activates the policy.
 
 ## Release checklist
 
@@ -24,7 +21,26 @@ This guide is for Astute Systems staff who release the extension to the VS Code 
    git push origin main v0.16.0
    ```
 
-5. The **Publish to VS Code Marketplace** workflow publishes the tag. Check the listing on both light and dark themes.
+5. Pushing the tag starts the **Publish to VS Code Marketplace** workflow straight away, and a version number can't be reused, so check that the **CI** workflow passed on that commit first.
+6. Once it finishes, check the listing on both light and dark themes.
+
+## Publish from your machine
+
+Releases normally go through the workflow above. To publish by hand, keep an Azure DevOps personal access token in `.env` at the repository root:
+
+```bash
+AZURE-PAT=<your token>
+```
+
+`.env` is ignored by Git and left out of the extension package. Never commit it or paste the token anywhere, because the repository is public. Stage files by name if you're unsure, and check `git status` before you commit.
+
+The hyphen means your shell can't load this name directly, so pass the value to `vsce` as `VSCE_PAT`:
+
+```bash
+VSCE_PAT="$(sed -n 's/^AZURE-PAT=//p' .env)" npx vsce publish --no-dependencies
+```
+
+Global tokens retire on 1 December 2026, so use this only as a fallback until Trusted Publishing is set up.
 
 ## Rules to remember
 

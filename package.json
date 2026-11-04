@@ -136,7 +136,7 @@
         "astuteChat.tools.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Let models that support tools read and search files in trusted workspaces. Tools are read-only."
+          "description": "Let models that support tools use workspace tools in trusted workspaces. Ask and Plan can only read. Agent can also change files and run commands, subject to your approvals."
         },
         "astuteChat.web.enabled": {
           "type": "boolean",
@@ -358,6 +358,7 @@
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^20.14.12",
     "@types/vscode": "~1.125.0",
+    "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.28.2",
     "markdown-it": "^14.1.0",
     "typescript": "^5.5.4"

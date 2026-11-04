@@ -40,6 +40,7 @@ Do not use `enabledApiProposals`. Proposed APIs work only in Insiders and must n
 - Disable skills and workspace tools in untrusted workspaces.
 - Ask and Plan must never receive change tools. `isToolAllowed` checks this again when a tool runs, because models can call tools they were not offered.
 - Every Agent file change and command needs approval, from the user or from `decide()` in `src/approvals.ts`. Keep Ask as the default mode for any caller.
+- `checkCommand` must judge arguments as the shell passes them, using `parseShell`. Checking the written text let `cat .en*` and `cat '.en'v` read `.env`. If a command has a mode that changes anything, list only its safe forms in `READ_ONLY_FORMS`.
 - Keep `checkCommand` as an allowlist of read-only commands. Do not add build, test or install commands, because they run project code. Only the explicit full Auto toggle may skip approval, and its hard limits in `src/tools.ts` must stay.
 - Stop must end everything: pending approvals, the Ollama request, queued tools and whole command process groups.
 - Measure speed before changing thread or model defaults. Using every core was about three times slower than 16 threads on a 24-core Core Ultra 9 275HX.
