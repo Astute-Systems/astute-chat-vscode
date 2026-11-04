@@ -55,6 +55,7 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <a href="#code-snippets">Code snippets</a>
 <a href="#review-mode">Review mode</a>
 <a href="#mcp-tools">MCP tools</a>
+<a href="#web-research">Web research</a>
 <a href="#chat-history">Chat history</a>
 <a href="#finding-code">Finding code</a>
 <a href="#errors-and-terminal-output">Errors and terminal output</a>
@@ -96,7 +97,7 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <li>At least one Ollama model. Agent mode needs a model that supports tools, and images need one with vision. A GPU makes a large difference to speed.</li>
 </ul>
 <h2 id="privacy">Privacy</h2>
-<p>Astute Chat has no telemetry. Your prompts, code and images go only to the Ollama server you choose. The default server is on your own machine.</p>
+<p>Astute Chat has no telemetry. Your prompts, code and images go only to the Ollama server you choose. The default server is on your own machine. If you turn on <a href="#web-research">web research</a>, search queries go to your search server, and the addresses models open are contacted directly.</p>
 <h2 id="modes">Modes</h2>
 <div class="table"><table>
 <thead>
@@ -191,7 +192,15 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
   }
 }
 </code></pre>
-<p>Servers run as programs on your machine, so add only ones you trust. They come only from user settings, so a workspace can't start one. Each MCP tool call asks first, at every level except full <strong>Auto</strong>, and Ask and Plan don't get MCP tools. Each tool uses up context, so only the first 20 tools are offered. Local servers that use stdio are supported, but HTTP servers aren't.</p>
+<p>Servers run as programs on your machine, so add only ones you trust. They come only from user settings, so a workspace can't start one. Each MCP tool call asks first, at every level except full <strong>Auto</strong>, and Ask and Plan don't get MCP tools. Each tool uses up context, so at most 20 tools are offered, shared evenly between your servers, and the chat tells you if any were left out. A server that fails to start is tried again on a later request, and one that stops is restarted. Local servers that use stdio are supported, but HTTP servers aren't.</p>
+<h2 id="web-research">Web research</h2>
+<p>Web tools are off by default, so nothing goes online unless you turn them on in your user settings:</p>
+<pre><code class="language-json">&quot;astuteChat.web.enabled&quot;: true,
+&quot;astuteChat.web.searchUrl&quot;: &quot;http://127.0.0.1:8888&quot;
+</code></pre>
+<p>Models can then read web pages in Ask, Plan and Agent. Searching needs a <a href="https://docs.searxng.org">SearXNG</a> server, which you can run yourself, with <code>json</code> added to <code>search.formats</code> in its <code>settings.yml</code>. Without one, models can still open addresses you give them.</p>
+<p>Each search and each page asks first, showing the query or address, at every level except full <strong>Auto</strong>. Check these before you approve them, because a model could be tricked into putting private details in one. Web tools need a model that supports tools and an open, trusted folder.</p>
+<p>Models can't open addresses on your computer or private network, even through a redirect, unless you turn on <code>astuteChat.web.allowPrivateAddresses</code>. Only the search server is exempt. Pages are limited to text, and long ones are shortened, so a larger <code>astuteChat.numCtx</code> helps with research.</p>
 <h2 id="chat-history">Chat history</h2>
 <p><strong>New Chat</strong> saves the current chat. Select the history icon at the top of the tab to reopen or delete a saved chat. Astute Chat keeps your last 30 chats for each workspace, on this computer. Large tool output isn't kept in saved chats.</p>
 <h2 id="finding-code">Finding code</h2>
