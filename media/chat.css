@@ -326,6 +326,17 @@ textarea:focus {
   flex: 1;
 }
 
+#context-use {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+
+#context-use.high {
+  color: var(--vscode-editorWarning-foreground, var(--muted));
+}
+
 #mode {
   flex: none;
   width: auto;

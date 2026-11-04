@@ -87,6 +87,15 @@ export class TokenMeter {
     return this.evalNs ? (this.evalTokens / this.evalNs) * 1e9 : 0;
   }
 
+  /** Share of the context window in use. Cached prompts report fewer tokens than they occupy, so this uses the larger figure. */
+  contextPercent(): number | undefined {
+    if (!this.contextLimit) {
+      return undefined;
+    }
+    const used = Math.max(this.promptTokens, this.promptEstimate) + this.outputTokens;
+    return Math.min(100, Math.round((used / this.contextLimit) * 100));
+  }
+
   /** The live status line, for example "Thinking… · 2.7k tokens · 3.4 t/s". */
   status(): string {
     const elapsed = formatDuration(this.now() - this.startedAt);
@@ -112,16 +121,15 @@ export class TokenMeter {
   /** The final line, for example "↑1.2k ↓3.2k · 3.4 t/s · 15m 40s · context 38%". */
   summary(): string {
     this.phase = "done";
-    // Cached prompts report fewer tokens than they occupy, so use the larger figure.
-    const contextUsed = Math.max(this.promptTokens, this.promptEstimate) + this.outputTokens;
     const parts = [`↑${formatTokens(this.promptTokens || this.promptEstimate)} ↓${formatTokens(this.outputTokens)}`];
     const rate = this.finalRate();
     if (rate) {
       parts.push(`${rate.toFixed(1)} t/s`);
     }
     parts.push(formatDuration(this.now() - this.startedAt));
-    if (this.contextLimit) {
-      parts.push(`context ${Math.min(100, Math.round((contextUsed / this.contextLimit) * 100))}%`);
+    const percent = this.contextPercent();
+    if (percent !== undefined) {
+      parts.push(`context ${percent}%`);
     }
     return parts.join(" · ");
   }

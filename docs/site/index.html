@@ -43,7 +43,7 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <div class="layout">
 <nav aria-label="Contents">
 <div class="brand"><img src="images/icon.png" alt="">Astute Chat</div>
-<span class="version">Version 0.16.1</span>
+<span class="version">Version 0.16.2</span>
 <a href="#features">Features</a>
 <a href="#requirements">Requirements</a>
 <a href="#privacy">Privacy</a>
@@ -103,7 +103,7 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <ul>
 <li>VS Code 1.127 or later</li>
 <li><a href="https://ollama.com">Ollama</a>, on this machine or a server you trust</li>
-<li>At least one Ollama model. Agent mode needs a model that supports tools, and images need one with vision. A GPU makes a large difference to speed.</li>
+<li>At least one Ollama model. Agent mode needs a model that supports tools, and images need one with vision. A GPU makes a large difference to speed. For resource-constrained environments, consider using small models like <code>tinyllama</code>.</li>
 </ul>
 <h2 id="privacy">Privacy</h2>
 <p>Astute Chat has no telemetry. Your prompts, code and images go only to the Ollama server you choose. The default server is on your own machine. If you turn on <a href="#web-research">web research</a>, search queries go to DuckDuckGo or your own search server, and the addresses models open are contacted directly.</p>
@@ -214,14 +214,16 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <p>Each search and each page asks first, showing the query or address, at every level except full <strong>Auto</strong>. Check these before you approve them, because a model could be tricked into putting private details in one. Web tools need a model that supports tools and an open, trusted folder.</p>
 <p>Models can't open addresses on your computer or private network, even through a redirect, unless you turn on <code>astuteChat.web.allowPrivateAddresses</code>. Only your own search server is exempt. Pages are limited to text, and long ones are shortened, so a larger <code>astuteChat.numCtx</code> helps with research.</p>
 <h2 id="chat-history">Chat history</h2>
-<p><strong>New Chat</strong> saves the current chat. Select the history icon at the top of the tab to reopen or delete a saved chat. Astute Chat keeps your last 30 chats for each workspace, on this computer. Large tool output isn't kept in saved chats.</p>
+<p><strong>New Chat</strong> saves the current chat. If a reply is still running, it stops the reply first and saves what arrived. To reopen or delete a saved chat, use the history icon at the top of the tab, or expand the <strong>Chats</strong> section below the chat. Astute Chat keeps your last 30 chats for each workspace, on this computer. Large tool output isn't kept in saved chats.</p>
+<p>Astute chats don't appear in VS Code's own Chat session list, because the API for that is only open to a few extensions.</p>
 <h2 id="finding-code">Finding code</h2>
 <p>In a trusted workspace, Astute Chat reads your project's manifests, such as <code>package.json</code>, <code>pyproject.toml</code>, <code>Cargo.toml</code>, <code>go.mod</code> and <code>CMakeLists.txt</code>, and tells the model the project type, entry points, build commands and top folders. It uses only names and paths from those files, not their free text.</p>
 <p>Models can search the workspace from a plain description, such as &quot;where do we retry a connection&quot;. This ranks code by the words it shares with the description, including the parts of names like <code>runChat</code>. It needs no extra model and works offline, but it doesn't understand meaning, so it can miss code that uses different words.</p>
 <h2 id="errors-and-terminal-output">Errors and terminal output</h2>
 <p>Models can read VS Code's Problems panel, and your recent terminal commands with their output, so you can say &quot;fix that error&quot;. Terminal reading needs VS Code shell integration, which is on by default for bash, zsh, fish and PowerShell. Terminal output goes to the model only when it asks for it, so take care if your commands print secrets.</p>
 <p>If a command fails in Agent mode, the model is sent back to fix it, up to three times. If it's still failing at the end, the chat says so.</p>
-<p>Long chats are summarised automatically, using your chat model, so earlier decisions survive the context limit. This adds a short pause when it happens.</p>
+<p>Long chats are summarised automatically, using the model answering the chat, so earlier decisions survive the context limit. This adds a short pause when it happens. To do it sooner, run <strong>Astute Chat: Update Chat Context</strong>. The figure next to the Send button shows how full the context window is, and it updates during a reply.</p>
+<p>Each chat keeps its summary in its own <code>context.txt</code>, with a record of the files and commands it used. The file is in the extension's storage rather than your project, so it can't be committed, and Ask and Plan still change nothing in your workspace. Open it with the document button at the top of the panel, or <strong>Astute Chat: Open Chat Context</strong>. You can edit it, and saved edits are used on the next message. Text under <code>## Notes</code> is yours and is never rewritten, and deleting the file makes the chat summarise again from its stored messages.</p>
 <h2 id="checking-its-work">Checking its work</h2>
 <p>After each file change, Agent checks the language server for new errors in that file. If there are any, it's told to fix them, up to three times, and the chat says so if they remain. Agent can also run your project's tests, using <code>npm test</code>, <code>pytest</code>, <code>cargo test</code>, <code>go test</code>, <code>ctest</code> or <code>make test</code>. The test command comes from your project, and it needs your approval like any other command.</p>
 <p>In every mode, models can ask the language server where a function is defined and where it's used. This needs a language server for that file type, and otherwise they use text search.</p>

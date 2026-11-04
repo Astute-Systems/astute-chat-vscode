@@ -5,6 +5,7 @@ import { SavedSettings, syncVectorTheme, VectorThemeStore } from "./vectorTheme"
 import * as vscode from "vscode";
 import { ChatService } from "./chatService";
 import { ChatViewProvider } from "./chatView";
+import { CHATS_VIEW_ID, ChatsTree } from "./chatsTree";
 import { getServerAddress, saveServerAddress } from "./config";
 import { ConnectionMonitor, ConnectionState } from "./connection";
 import { OllamaClient } from "./ollamaClient";
@@ -12,6 +13,7 @@ import { registerParticipant } from "./participant";
 import { McpManager } from "./mcpManager";
 import { TerminalLog } from "./terminalLog";
 import { isInsecureRemote, parseServerAddress, ServerAddress, toBaseUrl, toLabel } from "./server";
+import type { ChatRow } from "./savedChats";
 
 export interface AstuteChatApi {
   service: ChatService;
@@ -176,6 +178,7 @@ export function activate(context: vscode.ExtensionContext): AstuteChatApi {
     monitor,
     createStatusBar(monitor),
     vscode.window.registerWebviewViewProvider(ChatViewProvider.viewId, provider),
+    vscode.window.registerTreeDataProvider(CHATS_VIEW_ID, new ChatsTree(() => provider.chatRows, provider.onDidChangeChats)),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration("astuteChat.vectorTheme.enabled")) {
         applyVectorTheme();
@@ -188,6 +191,16 @@ export function activate(context: vscode.ExtensionContext): AstuteChatApi {
     }),
     vscode.commands.registerCommand("astuteChat.openChat", () => vscode.commands.executeCommand(`${ChatViewProvider.viewId}.focus`)),
     vscode.commands.registerCommand("astuteChat.newChat", () => provider.clear()),
+    vscode.commands.registerCommand("astuteChat.updateChatContext", () => provider.updateContext()),
+    vscode.commands.registerCommand("astuteChat.openChatContext", () => provider.openContext()),
+    vscode.commands.registerCommand("astuteChat.openSavedChat", async (id: number) => {
+      if (await provider.openSavedChat(id)) {
+        await vscode.commands.executeCommand(`${ChatViewProvider.viewId}.focus`);
+      } else {
+        void vscode.window.showInformationMessage("Wait for the reply to finish, or stop it, before opening another chat.");
+      }
+    }),
+    vscode.commands.registerCommand("astuteChat.deleteSavedChat", (row: ChatRow) => provider.deleteChat(row.id)),
     vscode.commands.registerCommand("astuteChat.addToChat", async (target?: unknown, selected?: unknown) => {
       // Empty space in the Explorer passes an empty object, so check before using it.
       const uris = (Array.isArray(selected) && selected.length ? selected : [target]).filter((item): item is vscode.Uri => item instanceof vscode.Uri);

@@ -54,7 +54,10 @@ Do not use `enabledApiProposals`. Proposed APIs work only in Insiders and must n
 - Send open-file and folder context with the request only. Do not store it in the transcript, or history will fill the context window.
 - `fitToContext` must always keep the system prompt, the current request and the latest tool results, though it may shorten those results, and must keep tool results paired with their calls. It must leave room for the answer, and count tool definitions.
 - The Agent change report must come from `ChangeJournal`, never from the model. Undo must skip files that changed since.
-- Keep chat summaries in the system prompt, which is never trimmed.
+- Keep chat summaries in the system prompt, which is never trimmed, and inside the size limit from `summaryTokens`, marked as data with `summarySection`. They can quote files and web pages.
+- `context.txt` must stay in extension storage, never the workspace: Ask and Plan must change nothing there, it could be committed, and a file from a cloned repository would reach the prompt. Only the extension writes it, so don't give models a tool for it. Model output must pass through `cleanSummary`, so it can't reach Notes or the activity record.
+- Decide on summaries in `prepareHistory`, once the model and full prompt size are known. The trigger must fire before `fitToContext` starts removing messages.
+- Facts that change every turn go with the request, not the system prompt, so Ollama can reuse its cached prompt.
 - Do not run real-model tests alongside other work. Contention caused false timeouts.
 - MCP servers must come only from `machine`-scoped settings, because they start programs. MCP tool annotations are untrusted, so every call asks unless full Auto is on.
 - Web tools stay off by default, with `machine`-scoped settings. Every request needs approval, and page text is untrusted. `src/webTools.ts` must check private addresses at connection time and on every redirect, so don't remove `publicLookup`.

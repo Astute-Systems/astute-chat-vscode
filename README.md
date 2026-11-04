@@ -147,7 +147,9 @@ Models can't open addresses on your computer or private network, even through a 
 
 ## Chat history
 
-**New Chat** saves the current chat. Select the history icon at the top of the tab to reopen or delete a saved chat. Astute Chat keeps your last 30 chats for each workspace, on this computer. Large tool output isn't kept in saved chats.
+**New Chat** saves the current chat. If a reply is still running, it stops the reply first and saves what arrived. To reopen or delete a saved chat, use the history icon at the top of the tab, or expand the **Chats** section below the chat. Astute Chat keeps your last 30 chats for each workspace, on this computer. Large tool output isn't kept in saved chats.
+
+Astute chats don't appear in VS Code's own Chat session list, because the API for that is only open to a few extensions.
 
 ## Finding code
 
@@ -161,7 +163,9 @@ Models can read VS Code's Problems panel, and your recent terminal commands with
 
 If a command fails in Agent mode, the model is sent back to fix it, up to three times. If it's still failing at the end, the chat says so.
 
-Long chats are summarised automatically, using your chat model, so earlier decisions survive the context limit. This adds a short pause when it happens.
+Long chats are summarised automatically, using the model answering the chat, so earlier decisions survive the context limit. This adds a short pause when it happens. To do it sooner, run **Astute Chat: Update Chat Context**. The figure next to the Send button shows how full the context window is, and it updates during a reply.
+
+Each chat keeps its summary in its own `context.txt`, with a record of the files and commands it used. The file is in the extension's storage rather than your project, so it can't be committed, and Ask and Plan still change nothing in your workspace. Open it with the document button at the top of the panel, or **Astute Chat: Open Chat Context**. You can edit it, and saved edits are used on the next message. Text under `## Notes` is yours and is never rewritten, and deleting the file makes the chat summarise again from its stored messages.
 
 ## Checking its work
 

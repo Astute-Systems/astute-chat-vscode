@@ -2,8 +2,10 @@ import * as crypto from "crypto";
 import * as vscode from "vscode";
 import { ChangeRequest, decide } from "./approvals";
 import { ChangeJournal } from "./changeJournal";
-import { ChatService } from "./chatService";
-import { messagesToSummarise, needsSummary } from "./chatSummary";
+import { activityLine, ChatContext, ChatContextStore, cleanSummary, EMPTY_CONTEXT, recentActivity } from "./chatContext";
+import { ChatService, HistoryBudget, PreparedHistory, SummaryTarget } from "./chatService";
+import { capText, messagesBeforeRecent, messagesToSummarise, notesSection, notesTokens, recentWorkNote, summarySection, summaryTokens } from "./chatSummary";
+import { estimateTokens } from "./chatEngine";
 import { getChatSettings } from "./config";
 import type { ConnectionMonitor } from "./connection";
 import { IMAGE_FILE } from "./contentGuard";
@@ -16,6 +18,7 @@ import { ChatMessage, OllamaError } from "./ollamaClient";
 import { isSensitivePath } from "./pathGuard";
 import { findRepo } from "./repoInfo";
 import { baseVersion, commitReview, currentBranch, discardReview, dropEmptyReview, latestCommit, mergeReview, ReviewBranch, reviewBlocker, reviewFiles, startReview } from "./reviewBranch";
+import { ChatRow, chatRows, chatTitle } from "./savedChats";
 import { parseSlash, Skill } from "./skillLoader";
 
 const STORAGE_KEY = "astuteChat.transcript";
@@ -23,12 +26,12 @@ const MODE_KEY = "astuteChat.mode";
 const APPROVAL_KEY = "astuteChat.approval";
 const PROPOSED_SCHEME = "astute-proposed";
 const SUMMARY_KEY = "astuteChat.summary";
+const CHAT_ID_KEY = "astuteChat.chatId";
 const REVIEW_MODE_KEY = "astuteChat.reviewMode";
 const OPEN_REVIEW_KEY = "astuteChat.openReview";
 const CHATS_KEY = "astuteChat.chats";
 const MAX_SAVED_CHATS = 30;
 const MAX_SAVED_TOOL_CHARS = 8000;
-const MAX_TITLE_CHARS = 60;
 const FILE_LIST_LIFETIME_MS = 30000;
 const MAX_LISTED_FILES = 3000;
 const MAX_STORED_ENTRIES = 200;
@@ -40,9 +43,17 @@ interface PendingApproval {
   settle(decision: ApprovalDecision): void;
 }
 
+/** How far into the transcript the context file covers. Older versions kept the text here too. */
+interface SummaryState {
+  upTo: number;
+  text?: string;
+}
+
 interface SavedChat extends ChatListing {
+  /** Names the context file. Missing from chats saved by older versions. */
+  chatId?: string;
   transcript: TranscriptEntry[];
-  summary?: { text: string; upTo: number };
+  summary?: SummaryState;
 }
 
 /** Large tool calls would fill workspace storage, so saved chats keep only their names. */
@@ -106,12 +117,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private chatKey = 0;
   private reviewMode: boolean;
   private openReview: (ReviewBranch & { root: string }) | undefined;
-  private summary: { text: string; upTo: number } | undefined;
+  private summary: SummaryState | undefined;
+  private chatId: string;
+  private readonly contextFiles: ChatContextStore;
+  private updatingContext = false;
+  private contextUse: number | undefined;
   private fileList: { items: string[]; at: number } | undefined;
   private nextApprovalId = 1;
   private active: TranscriptEntry | undefined;
   private status: string | undefined;
   private abort: AbortController | undefined;
+  private turn: Promise<void> | undefined;
+  private readonly chatsChanged = new vscode.EventEmitter<void>();
+  readonly onDidChangeChats = this.chatsChanged.event;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -123,11 +141,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const savedMode = context.workspaceState.get<string>(MODE_KEY);
     this.mode = isChatMode(savedMode) ? savedMode : "ask";
     this.summary = context.workspaceState.get(SUMMARY_KEY);
+    this.chatId = context.workspaceState.get<string>(CHAT_ID_KEY) ?? crypto.randomUUID();
+    this.contextFiles = new ChatContextStore((context.storageUri ?? context.globalStorageUri).fsPath);
     this.chats = context.workspaceState.get<SavedChat[]>(CHATS_KEY, []);
     this.reviewMode = context.workspaceState.get<boolean>(REVIEW_MODE_KEY, false);
     this.openReview = context.workspaceState.get(OPEN_REVIEW_KEY);
     const savedApproval = context.workspaceState.get<string>(APPROVAL_KEY);
     this.approval = isApprovalLevel(savedApproval) ? savedApproval : "ask";
+    context.subscriptions.push(this.chatsChanged);
     context.subscriptions.push(monitor.onDidChange(() => this.postState()));
     context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(() => this.postState()));
     context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(PROPOSED_SCHEME, this.proposed));
@@ -167,6 +188,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   <button id="history" type="button" class="secondary icon" title="Chat history" aria-label="Chat history" aria-expanded="false">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg>
   </button>
+  <button id="chat-context" type="button" class="secondary icon" title="Open chat context" aria-label="Open chat context">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>
+  </button>
   <button id="new-chat" type="button" class="secondary icon" title="New chat" aria-label="New chat">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4A2.5 2.5 0 0 1 4 13.5z"/><path d="M12 6.5v6M9 9.5h6"/></svg>
   </button>
@@ -186,6 +210,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     <select id="mode" aria-label="Mode"></select>
     <button id="approvals" type="button" class="secondary compact"></button>
     <span class="spacer"></span>
+    <span id="context-use" hidden></span>
     <button id="review-mode" type="button" class="secondary compact" aria-pressed="false">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M18 10.5c0 4-6 3-10 5"/></svg>
       <span>Review</span>
@@ -230,6 +255,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       openFile: this.includedOpenFile()?.file,
       pinned: this.pinned.map((item) => item.shown),
       status: this.status,
+      contextUse: this.contextUse,
     };
   }
 
@@ -244,7 +270,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       this.summary = { ...this.summary, upTo: Math.max(0, this.summary.upTo - removed) };
     }
     await this.context.workspaceState.update(SUMMARY_KEY, this.summary);
+    await this.context.workspaceState.update(CHAT_ID_KEY, this.chatId);
     await this.context.workspaceState.update(STORAGE_KEY, this.transcript);
+    this.chatsChanged.fire();
   }
 
   async receive(message: FromWebview): Promise<void> {
@@ -302,13 +330,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case "reviewAction":
         await this.reviewAction(message.branch, message.action);
         break;
+      case "openContext":
+        await this.openContext();
+        break;
       case "openChat":
         await this.openSavedChat(message.id);
         break;
       case "deleteChat":
-        this.chats = this.chats.filter((chat) => chat.id !== message.id);
-        await this.context.workspaceState.update(CHATS_KEY, this.chats);
-        this.postState();
+        await this.deleteChat(message.id);
         break;
       case "selectApproval":
         await this.setApproval(message.level);
@@ -328,7 +357,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case "implementPlan":
         if (!this.active) {
           await this.setMode("agent");
-          await this.runTurn("Implement the plan above.", "Implement the plan above.", undefined);
+          await this.startTurn("Implement the plan above.", "Implement the plan above.", undefined);
         }
         break;
       case "setServer":
@@ -450,6 +479,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         await discardReview(repo.root, latest);
       }
       await this.setOpenReview(undefined);
+      if (action === "discard") {
+        await this.noteActivity(`- Discarded review branch ${branch}, so its changes are gone.`);
+      }
       for (const entry of entries) {
         if (entry.review) {
           entry.review.state = action === "merge" ? "merged" : "discarded";
@@ -518,6 +550,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       parts.push(`Left ${skipped.join(", ")} alone, because ${skipped.length === 1 ? "it has" : "they have"} changed since.`);
     }
     this.log.info(parts.join(" "));
+    await this.noteActivity(`- ${parts.join(" ")}`);
     await this.info(parts.join(" "));
   }
 
@@ -582,27 +615,40 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     return this.chats.map(({ id, title, updatedAt }) => ({ id, title, updatedAt })).sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
-  /** Moves the current chat into the saved list, if it has anything in it. */
-  private saveCurrentChat(): void {
-    const first = this.transcript.find((entry) => entry.role === "user");
-    if (!first) {
-      return;
-    }
-    const title = first.content.replace(/\s+/g, " ").trim().slice(0, MAX_TITLE_CHARS);
-    const id = Math.max(0, ...this.chats.map((chat) => chat.id)) + 1;
-    this.chats.push({ id, title, updatedAt: Date.now(), transcript: this.transcript.map(compactEntry), summary: this.summary });
-    this.chats = this.chats.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_SAVED_CHATS);
+  get chatRows(): ChatRow[] {
+    return chatRows(chatTitle(this.transcript), this.chatList);
   }
 
-  async openSavedChat(id: number): Promise<void> {
-    const chat = this.chats.find((candidate) => candidate.id === id);
-    if (!chat || this.active) {
+  /** Moves the current chat into the saved list, if it has anything in it. */
+  private saveCurrentChat(): void {
+    const title = chatTitle(this.transcript);
+    if (title === undefined) {
       return;
+    }
+    const id = Math.max(0, ...this.chats.map((chat) => chat.id)) + 1;
+    this.chats.push({ id, chatId: this.chatId, title, updatedAt: Date.now(), transcript: this.transcript.map(compactEntry), summary: this.summary });
+    this.chats.sort((a, b) => b.updatedAt - a.updatedAt);
+    for (const chat of this.chats.splice(MAX_SAVED_CHATS)) {
+      void this.deleteContextFile(chat);
+    }
+  }
+
+  private async deleteContextFile(chat: SavedChat): Promise<void> {
+    await (chat.chatId ? this.contextFiles.remove(chat.chatId) : undefined)?.catch((error: unknown) => this.log.warn(`Could not remove a chat context file: ${String(error)}`));
+  }
+
+  /** Returns false if the chat can't be opened yet, because a reply is still running. */
+  async openSavedChat(id: number): Promise<boolean> {
+    const chat = this.chats.find((candidate) => candidate.id === id);
+    if (!chat || this.busy) {
+      return !this.busy;
     }
     this.chats = this.chats.filter((candidate) => candidate.id !== id);
     this.saveCurrentChat();
     this.transcript = chat.transcript;
     this.summary = chat.summary;
+    this.chatId = chat.chatId ?? crypto.randomUUID();
+    this.contextUse = undefined;
     this.pinned = [];
     this.hiddenOpenFile = undefined;
     this.journals.clear();
@@ -610,18 +656,37 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     await this.context.workspaceState.update(CHATS_KEY, this.chats);
     await this.persist();
     this.postState();
+    return true;
+  }
+
+  async deleteChat(id: number): Promise<void> {
+    const deleted = this.chats.find((chat) => chat.id === id);
+    this.chats = this.chats.filter((chat) => chat !== deleted);
+    if (deleted) {
+      await this.deleteContextFile(deleted);
+    }
+    await this.context.workspaceState.update(CHATS_KEY, this.chats);
+    this.chatsChanged.fire();
+    this.postState();
   }
 
   async clear(): Promise<void> {
+    // A running reply joins the transcript when it ends, so it must end before saving.
     this.abort?.abort();
+    await this.turn;
     this.saveCurrentChat();
-    await this.context.workspaceState.update(CHATS_KEY, this.chats);
+    // An empty chat isn't saved, so it keeps its id and any notes already written for it.
+    if (chatTitle(this.transcript) !== undefined) {
+      this.chatId = crypto.randomUUID();
+    }
+    this.contextUse = undefined;
     this.chatKey += 1;
     this.transcript = [];
     this.pinned = [];
     this.hiddenOpenFile = undefined;
     this.journals.clear();
     this.summary = undefined;
+    await this.context.workspaceState.update(CHATS_KEY, this.chats);
     await this.persist();
     this.postState();
   }
@@ -634,7 +699,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   async send(text: string, images: AttachedImage[] = []): Promise<void> {
     const trimmed = text.trim() || (images.length ? "Describe this image." : "");
-    if (!trimmed || this.active) {
+    if (!trimmed || this.busy) {
       return;
     }
 
@@ -669,7 +734,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     const skill: Skill | undefined = command.kind === "skill" ? command.skill : undefined;
     const prompt = command.kind === "skill" ? command.prompt || `Apply the ${command.skill.title} skill.` : shown;
-    await this.runTurn(prompt, shown, skill, images);
+    await this.startTurn(prompt, shown, skill, images);
+  }
+
+  /** Tracks the turn, so New Chat can wait for it to end. */
+  private startTurn(prompt: string, shown: string, skill: Skill | undefined, images: AttachedImage[] = []): Promise<void> {
+    const turn = this.runTurn(prompt, shown, skill, images).finally(() => {
+      if (this.turn === turn) {
+        this.turn = undefined;
+      }
+    });
+    this.turn = turn;
+    return turn;
   }
 
   private historyBetween(start: number, end: number): ChatMessage[] {
@@ -679,34 +755,147 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       .map((entry) => ({ role: entry.role as "user" | "assistant", content: `${entry.content}${entry.context ?? ""}` }));
   }
 
-  /** Replaces older turns with a summary before they're lost to the context limit. */
-  private async summariseIfNeeded(end: number, signal: AbortSignal): Promise<void> {
-    const start = this.summary?.upTo ?? 0;
-    const history = this.historyBetween(start, end);
-    if (history.length === 0 || !needsSummary(history, await this.service.contextLimit())) {
-      return;
+  private get busy(): boolean {
+    return !!this.active || this.updatingContext;
+  }
+
+  /** Facts about a reply are worth keeping, but never worth stopping the chat for. */
+  private async noteActivity(line: string | undefined): Promise<void> {
+    if (line) {
+      await this.contextFiles.addActivity(this.chatId, line).catch((error: unknown) => this.log.warn(`Could not update the chat context file: ${String(error)}`));
     }
-    const older = history.slice(0, messagesToSummarise(history));
+  }
+
+  /** Reads the context file each turn, so hand edits count. A file that's gone brings the older messages back. */
+  private async loadContext(): Promise<ChatContext> {
+    const legacy = this.summary?.text;
+    if (this.summary && legacy) {
+      this.summary = { upTo: this.summary.upTo };
+      try {
+        return await this.contextFiles.update(this.chatId, (context) => ({ ...context, summary: legacy }));
+      } catch (error) {
+        this.log.warn(`Could not move the summary to a file: ${String(error)}`);
+        return { ...EMPTY_CONTEXT, summary: legacy };
+      }
+    }
+    const context = (await this.contextFiles.read(this.chatId)) ?? EMPTY_CONTEXT;
+    if (!context.summary) {
+      this.summary = undefined;
+    }
+    return context;
+  }
+
+  /** Replaces older turns with a summary. If that fails it returns undefined, and the turns stay in the history. */
+  private async summariseMessages(start: number, end: number, history: ChatMessage[], count: number, earlier: string, target: SummaryTarget, signal: AbortSignal): Promise<ChatContext | undefined> {
     // Finds the transcript position just after the last summarised message.
     let seen = 0;
     let keepFrom = start;
-    while (keepFrom < end && seen < older.length) {
+    while (keepFrom < end && seen < count) {
       const entry = this.transcript[keepFrom];
       if ((entry.role === "user" || entry.role === "assistant") && !entry.error && entry.content) {
         seen += 1;
       }
       keepFrom += 1;
     }
-    this.status = "Summarising earlier chat…";
-    this.post({ type: "status", text: this.status });
-    const text = await this.service.summarise(older, this.summary?.text, signal);
-    if (text && !signal.aborted) {
-      this.summary = { text, upTo: keepFrom };
-      this.log.info(`Summarised the chat up to entry ${keepFrom}.`);
+    const limit = summaryTokens(target.usableLimit);
+    const text = await this.service.summarise(count ? history.slice(0, count) : history, capText(earlier, limit) || undefined, target, signal);
+    const summary = text ? cleanSummary(text, limit) : "";
+    if (!summary || signal.aborted) {
+      return undefined;
+    }
+    try {
+      const context = await this.contextFiles.update(this.chatId, (current) => ({ ...current, summary }));
+      this.summary = { upTo: keepFrom };
+      this.log.info(`Summarised the chat up to entry ${keepFrom} in ${this.contextFiles.file(this.chatId)}.`);
+      return context;
+    } catch (error) {
+      this.log.warn(`Could not write the chat context file: ${String(error)}`);
+      return undefined;
     }
   }
 
+  private contextSections(context: ChatContext, usableLimit: number): { systemSection?: string; requestNote: string } {
+    const sections = [context.summary && summarySection(capText(context.summary, summaryTokens(usableLimit))), context.notes && notesSection(capText(context.notes, notesTokens(usableLimit)))];
+    return { systemSection: sections.filter(Boolean).join("\n\n") || undefined, requestNote: recentWorkNote(recentActivity(context)) };
+  }
+
+  /** Summarises older turns before they're lost to the context limit, then picks what this turn sends. */
+  private async prepareHistory(end: number, signal: AbortSignal, budget: HistoryBudget): Promise<PreparedHistory> {
+    let context = await this.loadContext();
+    const start = this.summary?.upTo ?? 0;
+    const history = this.historyBetween(start, end);
+    const { systemSection, requestNote } = this.contextSections(context, budget.usableLimit);
+    const reserved = budget.reservedTokens + estimateTokens(systemSection ?? "") + estimateTokens(requestNote);
+    const count = messagesToSummarise(history, budget.usableLimit, reserved);
+    if (count) {
+      this.status = "Summarising earlier chat…";
+      this.post({ type: "status", text: this.status });
+      context = (await this.summariseMessages(start, end, history, count, context.summary, budget, signal)) ?? context;
+    }
+    return { history: this.historyBetween(this.summary?.upTo ?? 0, end), ...this.contextSections(context, budget.usableLimit) };
+  }
+
+  /** Opens the file for reading or editing, creating it so notes can be written before the first message. */
+  async openContext(): Promise<void> {
+    try {
+      await this.loadContext();
+      // Rewriting a file that exists could clash with unsaved edits to it.
+      if (!(await this.contextFiles.read(this.chatId))) {
+        await this.contextFiles.update(this.chatId, (context) => context);
+      }
+      await this.persist();
+      await vscode.window.showTextDocument(vscode.Uri.file(this.contextFiles.file(this.chatId)));
+    } catch (error) {
+      this.log.warn(`Could not open the chat context file: ${String(error)}`);
+      void vscode.window.showErrorMessage("Could not open the chat context file. Astute Chat: Show Logs has the details.");
+    }
+  }
+
+  /** Brings the context file up to date on request, leaving the latest messages for the next reply. */
+  async updateContext(): Promise<void> {
+    if (this.busy) {
+      void vscode.window.showInformationMessage("Wait for the current reply to finish, then update the chat context.");
+      return;
+    }
+    const abort = new AbortController();
+    this.abort = abort;
+    this.updatingContext = true;
+    const update = vscode.window
+      .withProgress({ location: vscode.ProgressLocation.Notification, title: "Updating chat context…", cancellable: true }, async (_progress, token) => {
+        token.onCancellationRequested(() => abort.abort());
+        const context = await this.loadContext();
+        const start = this.summary?.upTo ?? 0;
+        const end = this.transcript.length;
+        const history = this.historyBetween(start, end);
+        if (!history.length) {
+          return "There's nothing new to add to the chat context.";
+        }
+        const target = await this.service.summaryTarget(this.mode);
+        const updated = await this.summariseMessages(start, end, history, messagesBeforeRecent(history), context.summary, target, abort.signal);
+        return updated ? "Updated the chat context." : abort.signal.aborted ? undefined : "Could not update the chat context. Astute Chat: Show Logs has the details.";
+      })
+      .then(
+        (message) => message,
+        (error: unknown) => (error instanceof Error ? error.message : "Could not update the chat context."),
+      )
+      .then(async (message) => {
+        this.updatingContext = false;
+        this.abort = undefined;
+        await this.persist();
+        if (message) {
+          void vscode.window.showInformationMessage(message);
+        }
+      });
+    this.turn = Promise.resolve(update).finally(() => {
+      this.turn = undefined;
+    });
+    await this.turn;
+  }
+
   private async runTurn(prompt: string, shown: string, skill: Skill | undefined, images: AttachedImage[] = []): Promise<void> {
+    // Set before the first await, so New Chat can always stop this turn.
+    const abort = new AbortController();
+    this.abort = abort;
     const selection = selectionContext();
     // Selected code already says what the request is about, so the whole file isn't added too.
     const requestContext = await buildRequestContext(selection ? undefined : this.includedOpenFile(), this.pinned);
@@ -722,24 +911,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const mode = this.mode;
     const active: TranscriptEntry = { role: "assistant", content: "", thinking: "", tools: [], notices: [], mode };
     this.active = active;
-    const abort = new AbortController();
-    this.abort = abort;
     this.post({ type: "begin", user });
+    this.chatsChanged.fire();
     let allowEditsThisTurn = false;
     const journal = new ChangeJournal();
     const review = this.reviewMode && MODES[mode].canChange ? await this.beginReview(prompt, active) : undefined;
     // The new message is already in the transcript, so history stops just before it.
     const end = this.transcript.length - 1;
-    await this.summariseIfNeeded(end, abort.signal);
-    const history = this.historyBetween(this.summary?.upTo ?? 0, end);
 
     try {
       const result = await this.service.runTurn({
         prompt: `${prompt}${selection?.context ?? ""}${requestContext}`,
-        history,
+        prepareHistory: (budget) => this.prepareHistory(end, abort.signal, budget),
         mode,
         skill,
-        chatSummary: this.summary?.text,
         images: images.map(({ name, data }) => ({ name, data })),
         signal: abort.signal,
         journal,
@@ -763,6 +948,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           onStatus: (text) => {
             this.status = this.pending ? "Waiting for your approval…" : text;
             this.post({ type: "status", text: this.status });
+          },
+          onContext: (percent) => {
+            this.contextUse = percent;
+            this.post({ type: "contextUse", percent });
           },
           onThinking: (text) => {
             active.thinking += text;
@@ -804,6 +993,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         active.undoId = this.nextUndoId++;
         this.journals.set(active.undoId, journal);
       }
+      await this.noteActivity(activityLine(active.changes, active.tools ?? []));
       this.active = undefined;
       this.status = undefined;
       this.abort = undefined;

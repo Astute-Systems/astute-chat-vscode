@@ -86,6 +86,8 @@ export interface ViewState {
   /** Files and folders added to the chat. */
   pinned: string[];
   status?: string;
+  /** Share of the context window the latest reply used. Unknown until a reply in this chat. */
+  contextUse?: number;
 }
 
 export type ToWebview =
@@ -93,6 +95,7 @@ export type ToWebview =
   | { type: "begin"; user: TranscriptEntry }
   | { type: "delta"; kind: "thinking" | "content"; text: string }
   | { type: "status"; text: string }
+  | { type: "contextUse"; percent: number }
   | { type: "tool"; text: string }
   | { type: "notice"; text: string }
   | { type: "approval"; prompt: ApprovalPrompt }
@@ -110,6 +113,7 @@ export type FromWebview =
   | { type: "selectMode"; mode: ChatMode }
   | { type: "implementPlan" }
   | { type: "newChat" }
+  | { type: "openContext" }
   | { type: "toggleReview" }
   | { type: "reviewAction"; branch: string; action: "diff" | "merge" | "discard" }
   | { type: "openChat"; id: number }

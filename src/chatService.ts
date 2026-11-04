@@ -3,12 +3,12 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { findAgentsFile } from "./agentsFile";
 import type { ChangeJournal } from "./changeJournal";
-import { SUMMARY_PROMPT, summarySection } from "./chatSummary";
-import { chooseToolModel, EngineEvents, EngineResult, localModels, resolveModel, runChat, ToolRunner } from "./chatEngine";
+import { boundConversation, summaryPrompt, summaryTokens } from "./chatSummary";
+import { chooseToolModel, EngineEvents, EngineResult, estimateTokens, localModels, nextTokenScale, PROMPT_SHARE, resolveModel, runChat, ToolRunner } from "./chatEngine";
 import { hostDescription } from "./hostInfo";
 import { detectLanguages, LANGUAGE_SKILLS } from "./languageSkills";
-import { ChatMode, MCP_RULE, MODES, skillReminder, WEB_REMINDER, WEB_RULE } from "./modes";
-import { getChatSettings, getServerAddress, saveModel } from "./config";
+import { ChatMode, MCP_RULE, ModeDefinition, MODES, skillReminder, WEB_REMINDER, WEB_RULE } from "./modes";
+import { ChatSettings, getChatSettings, getServerAddress, saveModel } from "./config";
 import { ChatMessage, ModelDetails, ModelInfo, OllamaClient, OllamaError } from "./ollamaClient";
 import { describeLocation, findRepo } from "./repoInfo";
 import { isLoopback, toBaseUrl } from "./server";
@@ -29,20 +29,44 @@ export interface ImageInput {
   data: string;
 }
 
+/** The model that will answer, which isn't known until the turn starts. */
+export interface SummaryTarget {
+  model: string;
+  /** The real window, sent to Ollama as num_ctx. */
+  contextLimit: number;
+  /** The window to plan with, allowing for how this model counts tokens. */
+  usableLimit: number;
+}
+
+export interface HistoryBudget extends SummaryTarget {
+  /** The system prompt, tools and current request, before any history. */
+  reservedTokens: number;
+}
+
+export interface PreparedHistory {
+  history: ChatMessage[];
+  /** Added to the system prompt, which is never trimmed. */
+  systemSection?: string;
+  /** Added to this request only, and not stored in the chat. */
+  requestNote?: string;
+}
+
 export interface TurnRequest {
   images?: ImageInput[];
   prompt: string;
-  history: ChatMessage[];
+  history?: ChatMessage[];
+  /** Chooses the history once the size of everything else is known. Replaces history. */
+  prepareHistory?: (budget: HistoryBudget) => Promise<PreparedHistory>;
   /** Ask is the default, so a caller can never change files by accident. */
   mode?: ChatMode;
   confirm?: ConfirmChange;
   journal?: ChangeJournal;
   skill?: Skill;
-  /** A summary of older turns that are no longer in the history. */
-  chatSummary?: string;
   signal?: AbortSignal;
   events: EngineEvents;
 }
+
+type NoticeEvents = Pick<EngineEvents, "onNotice">;
 
 async function workspaceContext(): Promise<string> {
   const folders = (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
@@ -85,6 +109,8 @@ async function projectFileNames(): Promise<string[]> {
 export class ChatService {
   /** Each cloud model is mentioned once, so the warning stays noticeable. */
   private readonly warnedCloud = new Set<string>();
+  /** How each model counts tokens against the estimate, learned as it runs. */
+  private readonly tokenScales = new Map<string, number>();
   constructor(
     private readonly log: vscode.LogOutputChannel,
     private readonly terminal?: TerminalLog,
@@ -150,36 +176,33 @@ export class ChatService {
     };
   }
 
-  /** The context window really in use, which a model's own limit can lower. */
-  async contextLimit(): Promise<number> {
-    const settings = getChatSettings();
+  /** The model a turn in this mode would use, and the window to plan with. */
+  async summaryTarget(mode: ChatMode): Promise<SummaryTarget> {
     const client = this.client();
-    try {
-      const { name } = resolveModel(settings.model, await client.listModels());
-      const limit = name ? (await client.showModel(name)).contextLength : undefined;
-      return Math.min(settings.numCtx, limit ?? settings.numCtx);
-    } catch {
-      return settings.numCtx;
-    }
+    const { model, details } = await this.turnModel(client, MODES[mode], getChatSettings(), { onNotice: () => undefined });
+    return this.targetFor(model, details);
+  }
+
+  private targetFor(model: string, details: Pick<ModelDetails, "contextLength">): SummaryTarget {
+    const { numCtx } = getChatSettings();
+    const contextLimit = Math.min(numCtx, details.contextLength ?? numCtx);
+    return { model, contextLimit, usableLimit: Math.floor(contextLimit / (this.tokenScales.get(model) ?? 1)) };
   }
 
   /** Condenses older messages. Returns undefined if that fails, so the chat can carry on. */
-  async summarise(messages: ChatMessage[], earlier: string | undefined, signal?: AbortSignal): Promise<string | undefined> {
+  async summarise(messages: ChatMessage[], earlier: string | undefined, target: SummaryTarget, signal?: AbortSignal): Promise<string | undefined> {
     const settings = getChatSettings();
     const client = this.client();
     try {
-      const { name } = resolveModel(settings.model, await client.listModels());
-      if (!name) {
-        return undefined;
-      }
-      const conversation = messages.map((message) => `${message.role}: ${message.content}`).join("\n\n");
+      const intro = `${summaryPrompt(summaryTokens(target.usableLimit))}\n\n${earlier ? `Earlier notes:\n${earlier}\n\n` : ""}`;
+      const room = Math.floor(target.usableLimit * PROMPT_SHARE) - estimateTokens(intro);
       const outcome = await client.chat(
         {
-          model: name,
-          messages: [{ role: "user", content: `${SUMMARY_PROMPT}\n\n${earlier ? `Earlier summary:\n${earlier}\n\n` : ""}${conversation}` }],
+          model: target.model,
+          messages: [{ role: "user", content: `${intro}${boundConversation(messages, room)}` }],
           think: false,
           keep_alive: settings.keepAlive,
-          options: { temperature: 0.1, num_ctx: settings.numCtx },
+          options: { temperature: 0.1, num_ctx: target.contextLimit },
         },
         {},
         { signal, idleTimeoutMs: settings.idleTimeoutMs },
@@ -257,7 +280,7 @@ export class ChatService {
     ].join("\n");
   }
 
-  private async pickModel(client: OllamaClient, configured: string, events: EngineEvents): Promise<string> {
+  private async pickModel(client: OllamaClient, configured: string, events: NoticeEvents): Promise<string> {
     const installed: ModelInfo[] = await client.listModels();
     if (installed.length === 0) {
       throw new OllamaError("model-not-found", "This Ollama server has no models. Run `ollama pull <model>` on a connected machine, or copy its `~/.ollama/models` folder to the server.");
@@ -275,20 +298,25 @@ export class ChatService {
     return name;
   }
 
-  async runTurn(request: TurnRequest): Promise<EngineResult & { model: string; imageText: string }> {
-    const settings = getChatSettings();
-    const mode = MODES[request.mode ?? "ask"];
-    const client = this.client();
-    let model = await this.pickModel(client, mode.requiresTools && settings.agentModel ? settings.agentModel : settings.model, request.events);
-    let details = await client.showModel(model).catch(() => ({ capabilities: [] as string[], contextLength: undefined }));
+  private async turnModel(client: OllamaClient, mode: ModeDefinition, settings: ChatSettings, events: NoticeEvents): Promise<{ model: string; details: ModelDetails }> {
+    let model = await this.pickModel(client, mode.requiresTools && settings.agentModel ? settings.agentModel : settings.model, events);
+    let details: ModelDetails = await client.showModel(model).catch(() => ({ capabilities: [], contextLength: undefined }));
     if (mode.requiresTools && !details.capabilities.includes("tools")) {
       const replacement = await this.pickToolModel(client);
       if (replacement) {
-        request.events.onNotice(`Using ${replacement} for Agent mode, because ${model} can't use tools.`);
+        events.onNotice(`Using ${replacement} for Agent mode, because ${model} can't use tools.`);
         model = replacement;
         details = await client.showModel(model).catch(() => details);
       }
     }
+    return { model, details };
+  }
+
+  async runTurn(request: TurnRequest): Promise<EngineResult & { model: string; imageText: string }> {
+    const settings = getChatSettings();
+    const mode = MODES[request.mode ?? "ask"];
+    const client = this.client();
+    const { model, details } = await this.turnModel(client, mode, settings, request.events);
 
     if ((await client.listModels().catch(() => [])).some((entry) => entry.name === model && entry.remote) && !this.warnedCloud.has(model)) {
       this.warnedCloud.add(model);
@@ -305,9 +333,6 @@ export class ChatService {
     const skill = request.skill ?? matchSkill(request.prompt, skills);
     const projectRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const sections = [buildSkillSystemPrompt(skills, settings.debugSkills), mode.instructions, await workspaceContext(), vscode.workspace.isTrusted && projectRoot ? summariseProject(projectRoot) : ""];
-    if (request.chatSummary) {
-      sections.push(summarySection(request.chatSummary));
-    }
     if (skill) {
       sections.push(`Follow this skill for the current request:\n${skill.title}\n${skill.content}`);
       this.log.info(`Using the ${skill.title} skill.`);
@@ -381,35 +406,48 @@ export class ChatService {
     if (useTools && settings.web) {
       sections.push(WEB_RULE);
     }
-    const contextLimit = Math.min(settings.numCtx, details.contextLength ?? settings.numCtx);
+    const target = this.targetFor(model, details);
+    const { contextLimit } = target;
     this.log.info(`Chat: mode=${mode.id} model=${model} num_ctx=${contextLimit} tools=${useTools} skill=${skill?.name ?? "none"} folder=${path.basename(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "")}`);
+
+    const tools = useTools ? this.tracedTools(createToolRunner(mode.id, {
+          confirm: request.confirm,
+          readImage,
+          journal: request.journal,
+          readTerminal: this.terminal ? () => this.terminal?.describe() ?? "" : undefined,
+          mcp: this.mcp,
+          mcpTools: mcpTools?.tools,
+          web: settings.web,
+          skills,
+        })) : undefined;
+    const reminders = `${useTools ? (mode.requestReminder ?? "") : ""}${useTools && settings.web ? WEB_REMINDER : ""}${request.skill ? skillReminder(request.skill.title) : ""}`;
+    const systemPrompt = sections.filter(Boolean).join("\n\n");
+    const prepared = request.prepareHistory
+      ? await request.prepareHistory({
+          ...target,
+          reservedTokens: estimateTokens(systemPrompt) + estimateTokens(`${request.prompt}${imageText}${reminders}`) + (tools ? estimateTokens(JSON.stringify(tools.definitions)) : 0),
+        })
+      : { history: request.history ?? [] };
 
     const result = await runChat({
       client,
       model,
-      messages: [{ role: "system", content: sections.filter(Boolean).join("\n\n") }, ...request.history, { role: "user", content: `${request.prompt}${imageText}${useTools ? (mode.requestReminder ?? "") : ""}${useTools && settings.web ? WEB_REMINDER : ""}${request.skill ? skillReminder(request.skill.title) : ""}`, images: directImages.length ? directImages : undefined }],
+      messages: [{ role: "system", content: [systemPrompt, prepared.systemSection].filter(Boolean).join("\n\n") }, ...prepared.history, { role: "user", content: `${request.prompt}${imageText}${prepared.requestNote ?? ""}${reminders}`, images: directImages.length ? directImages : undefined }],
       contextLimit,
+      tokenScale: this.tokenScales.get(model),
       numThread: chooseThreads(settings.numThread),
       temperature: settings.temperature,
       keepAlive: settings.keepAlive,
       idleTimeoutMs: settings.idleTimeoutMs,
       think: settings.thinking && details.capabilities.includes("thinking"),
-      tools: useTools ? this.tracedTools(createToolRunner(mode.id, {
-            confirm: request.confirm,
-            readImage,
-            journal: request.journal,
-            readTerminal: this.terminal ? () => this.terminal?.describe() ?? "" : undefined,
-            mcp: this.mcp,
-            mcpTools: mcpTools?.tools,
-            web: settings.web,
-            skills,
-          })) : undefined,
+      tools,
       maxToolRounds: mode.maxToolRounds,
       retryWithoutTools: mode.retryPrompt,
       fixFailures: mode.fixPrompt,
       signal: request.signal,
       events: request.events,
     });
+    this.tokenScales.set(model, nextTokenScale(this.tokenScales.get(model) ?? 1, result.tokenRatio));
     this.log.info(`Chat finished: ${result.summary}`);
     return { ...result, model, imageText };
   }

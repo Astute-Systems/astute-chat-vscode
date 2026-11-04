@@ -12,8 +12,11 @@ const MIN_RESULT_TOKENS = 200;
 const RESULT_SHORTENED = "\n[Shortened to fit the context window. Read a smaller range for more.]";
 const TOOLS_WORK_PROMPT = "Your tools do work, so don't say they can't. Call list_files or search_text now, and read_file for the code. If a tool refuses something, read why and try a different tool.";
 const EMPTY_REPLY_PROMPT = "You didn't write an answer. Answer the request now in plain text, using what you already have. If you don't have enough, say what's missing.";
-/** Share of the context window kept free for the reply. */
-const PROMPT_SHARE = 0.75;
+/** Share of the context window the prompt may use. The rest is kept free for the reply. */
+export const PROMPT_SHARE = 0.75;
+/** Below this a prompt is too small to say anything about how a model counts tokens. */
+const MIN_TOKENS_TO_MEASURE = 200;
+const MAX_TOKEN_SCALE = 2;
 
 /** Tool results starting with this are also shown to the user. */
 export const REFUSED = "Refused: ";
@@ -29,6 +32,8 @@ export interface EngineEvents {
   onContent(text: string): void;
   onTool(description: string): void;
   onNotice(text: string): void;
+  /** Share of the context window in use, whenever it changes. */
+  onContext?(percent: number): void;
 }
 
 export interface EngineRequest {
@@ -36,6 +41,8 @@ export interface EngineRequest {
   model: string;
   messages: ChatMessage[];
   contextLimit: number;
+  /** How many real tokens this model uses for each estimated one. */
+  tokenScale?: number;
   numThread?: number;
   temperature: number;
   keepAlive: string;
@@ -56,9 +63,11 @@ export interface EngineResult {
   thinking: string;
   summary: string;
   cancelled: boolean;
+  /** Tokens Ollama counted for each estimated one, when a prompt was large enough to measure. */
+  tokenRatio?: number;
 }
 
-const CHARS_PER_TOKEN = 4;
+export const CHARS_PER_TOKEN = 4;
 const MESSAGE_TOKENS = 4;
 
 export function estimateTokens(text: string): number {
@@ -66,7 +75,18 @@ export function estimateTokens(text: string): number {
 }
 
 export function estimateMessages(messages: ChatMessage[]): number {
-  return messages.reduce((total, message) => total + estimateTokens(message.content) + MESSAGE_TOKENS, 0);
+  return messages.reduce((total, message) => {
+    const toolCalls = message.tool_calls?.length ? estimateTokens(JSON.stringify(message.tool_calls)) : 0;
+    return total + estimateTokens(message.content) + estimateTokens(message.thinking ?? "") + toolCalls + MESSAGE_TOKENS;
+  }, 0);
+}
+
+/**
+ * Moves towards what Ollama reports. A cached prompt reports fewer tokens than it
+ * occupies, so a ratio of 1 or less says nothing and is ignored.
+ */
+export function nextTokenScale(current: number, ratio: number | undefined): number {
+  return ratio && ratio > 1 ? Math.min(MAX_TOKEN_SCALE, (current + ratio) / 2) : current;
 }
 
 const SHORTENED_OUTPUT = "[Output removed to save space. Run the tool again if you need it.]";
@@ -197,21 +217,32 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
   let failedEdit = false;
   let pushedBack = false;
   let fixAttempts = 0;
+  let tokenRatio: number | undefined;
+  const fitLimit = Math.floor(request.contextLimit / (request.tokenScale ?? 1));
 
-  const ticker = setInterval(() => events.onStatus(meter.status()), STATUS_INTERVAL_MS);
+  let reportedContext: number | undefined;
+  const report = (): void => {
+    events.onStatus(meter.status());
+    const percent = meter.contextPercent();
+    if (percent !== undefined && percent !== reportedContext) {
+      reportedContext = percent;
+      events.onContext?.(percent);
+    }
+  };
+  const ticker = setInterval(report, STATUS_INTERVAL_MS);
   events.onStatus(meter.status());
 
   try {
     for (let round = 0; ; round += 1) {
       const toolTokens = request.tools ? estimateTokens(JSON.stringify(request.tools.definitions)) : 0;
-      const fitted = fitToContext(transcript, request.contextLimit, request.messages.length - 1, toolTokens);
+      const fitted = fitToContext(transcript, fitLimit, request.messages.length - 1, toolTokens);
       if (fitted.dropped && round === 0) {
         events.onNotice(`Removed ${fitted.dropped} older message${fitted.dropped === 1 ? "" : "s"} to fit the context window.`);
       }
 
       const loaded = await client.isLoaded(model).catch(() => true);
-      meter.beginRound(estimateMessages(fitted.messages), loaded);
-      events.onStatus(meter.status());
+      meter.beginRound(estimateMessages(fitted.messages) + toolTokens, loaded);
+      report();
 
       const offerTools = request.tools && !askedForAnswer && round < (request.maxToolRounds ?? DEFAULT_TOOL_ROUNDS);
       const outcome = await client.chat(
@@ -240,6 +271,11 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
 
       meter.endRound(outcome.usage);
       lastUsage = outcome.usage;
+      report();
+      const estimated = estimateMessages(fitted.messages) + toolTokens;
+      if (outcome.usage.promptTokens && estimated >= MIN_TOKENS_TO_MEASURE) {
+        tokenRatio = Math.max(tokenRatio ?? 0, outcome.usage.promptTokens / estimated);
+      }
 
       // A failed command comes first, because its real error is more use than this.
       if (outcome.toolCalls.length === 0 && offerTools && !pushedBack && failedOutput === undefined && claimsToolsBroken(outcome.content)) {
@@ -330,7 +366,7 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
     if (lastUsage.doneReason === "length") {
       events.onNotice("The reply was cut off by the context window. Increase astuteChat.numCtx to allow longer replies.");
     }
-    return { content, thinking, summary: meter.summary(), cancelled: false };
+    return { content, thinking, summary: meter.summary(), cancelled: false, tokenRatio };
   } catch (error) {
     if (error instanceof OllamaError && error.kind === "cancelled") {
       return { content, thinking, summary: `Stopped · ${meter.summary()}`, cancelled: true };

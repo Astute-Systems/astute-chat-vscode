@@ -240,6 +240,27 @@
         "icon": "$(add)"
       },
       {
+        "command": "astuteChat.updateChatContext",
+        "title": "Update Chat Context",
+        "category": "Astute Chat"
+      },
+      {
+        "command": "astuteChat.openChatContext",
+        "title": "Open Chat Context",
+        "category": "Astute Chat"
+      },
+      {
+        "command": "astuteChat.openSavedChat",
+        "title": "Open Saved Chat",
+        "category": "Astute Chat"
+      },
+      {
+        "command": "astuteChat.deleteSavedChat",
+        "title": "Delete Chat",
+        "category": "Astute Chat",
+        "icon": "$(trash)"
+      },
+      {
         "command": "astuteChat.addToChat",
         "title": "Add to Astute Chat",
         "category": "Astute Chat"
@@ -338,15 +359,40 @@
           "id": "astuteChat.chatView",
           "name": "Astute",
           "icon": "icons/astute-tab.svg"
+        },
+        {
+          "id": "astuteChat.chatsView",
+          "name": "Chats",
+          "contextualTitle": "Astute",
+          "icon": "icons/astute-tab.svg",
+          "visibility": "collapsed"
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "astuteChat.chatsView",
+        "contents": "Your Astute chats appear here."
+      }
+    ],
     "menus": {
       "view/title": [
+        {
+          "command": "astuteChat.newChat",
+          "when": "view == astuteChat.chatsView",
+          "group": "navigation"
+        },
         {
           "command": "astuteChat.setServerAddress",
           "when": "view == astuteChat.chatView",
           "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "astuteChat.deleteSavedChat",
+          "when": "view == astuteChat.chatsView && viewItem == astuteSavedChat",
+          "group": "inline"
         }
       ],
       "explorer/context": [
@@ -358,6 +404,14 @@
       "commandPalette": [
         {
           "command": "astuteChat.addToChat",
+          "when": "false"
+        },
+        {
+          "command": "astuteChat.openSavedChat",
+          "when": "false"
+        },
+        {
+          "command": "astuteChat.deleteSavedChat",
           "when": "false"
         }
       ]

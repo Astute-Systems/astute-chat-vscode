@@ -53,3 +53,21 @@ test("falls back to counted chunks if the server sends no totals", () => {
   meter.endRound({});
   assert.equal(meter.summary(), "↑10 ↓2 · 0s");
 });
+
+test("reports the share of the context in use as a reply grows", () => {
+  const meter = new TokenMeter(1000);
+  meter.beginRound(380, true);
+  assert.equal(meter.contextPercent(), 38);
+  meter.chunk("responding");
+  meter.chunk("responding");
+  assert.equal(meter.contextPercent(), 38);
+  meter.endRound({ promptTokens: 500, outputTokens: 100 });
+  assert.equal(meter.contextPercent(), 60);
+});
+
+test("never reports more than a full window, and nothing without a limit", () => {
+  const meter = new TokenMeter(100);
+  meter.beginRound(500, true);
+  assert.equal(meter.contextPercent(), 100);
+  assert.equal(new TokenMeter(0).contextPercent(), undefined);
+});

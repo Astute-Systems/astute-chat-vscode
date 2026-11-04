@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- New **Chats** section in the Astute tab lists your chats in a native view
+- New Chat during a reply now saves the reply instead of discarding it
+- Each chat now keeps its summary in an editable `context.txt`, with a record of the files and commands it used
+- New **Update Chat Context** command summarises a chat on request
+- New **Open Chat Context** button and command, and a live context figure next to Send
+- Long chats are summarised before messages are dropped, using the answering model and its real context window
+- The summary has a size limit, and the token count now includes tool calls and learns how each model counts tokens
+
 ## 0.16.1
 
 - Show Logs now lists how each tool ended and what the change report contained

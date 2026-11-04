@@ -1,6 +1,6 @@
 import * as assert from "node:assert/strict";
 import { test } from "node:test";
-import { chooseToolModel, claimsToolsBroken, commandFailed, EngineEvents, estimateMessages, fitToContext, resolveModel, runChat, ToolRunner } from "../chatEngine";
+import { chooseToolModel, claimsToolsBroken, commandFailed, EngineEvents, estimateMessages, fitToContext, nextTokenScale, resolveModel, runChat, ToolRunner } from "../chatEngine";
 import { ChatMessage, OllamaClient } from "../ollamaClient";
 import { line, startMock } from "./mockOllama";
 
@@ -409,4 +409,39 @@ test("sends an edit that added errors back to be fixed", async (t) => {
   assert.equal(round, 4);
   assert.match(mock.requests.filter((r) => r.path === "/api/chat")[2].body.messages.at(-1).content, /Line 2: bad type/);
   assert.deepEqual(events.notices, []);
+});
+
+test("counts tool calls and thinking towards the prompt size", () => {
+  const plain = estimateMessages([{ role: "assistant", content: "ok" }]);
+  const call = { function: { name: "write_file", arguments: { path: "a.ts", content: "x".repeat(8000) } } };
+  assert.ok(estimateMessages([{ role: "assistant", content: "ok", tool_calls: [call] }]) > plain + 1900);
+  assert.equal(estimateMessages([{ role: "assistant", content: "ok", thinking: "y".repeat(400) }]), plain + 100);
+});
+
+test("learns how a model counts tokens, ignoring cached prompts", () => {
+  assert.equal(nextTokenScale(1, undefined), 1);
+  assert.equal(nextTokenScale(1.3, 0.2), 1.3, "a cached prompt reports too few tokens");
+  assert.equal(nextTokenScale(1, 1.4), 1.2);
+  assert.equal(nextTokenScale(1.8, 9), 2);
+});
+
+test("reports context use to the panel only when it changes", async () => {
+  const mock = await startMock((_request, response) => response.end(line({ message: { content: "answer" }, done: true, prompt_eval_count: 400, eval_count: 10 })));
+  const seen: number[] = [];
+  try {
+    await runChat({
+      client: new OllamaClient(mock.url),
+      model: "tiny:1b",
+      messages: [{ role: "user", content: "x".repeat(800) }],
+      contextLimit: 1000,
+      temperature: 0,
+      keepAlive: "1m",
+      idleTimeoutMs: 1000,
+      think: false,
+      events: { onStatus: () => undefined, onThinking: () => undefined, onContent: () => undefined, onTool: () => undefined, onNotice: () => undefined, onContext: (percent) => seen.push(percent) },
+    });
+  } finally {
+    await mock.close();
+  }
+  assert.deepEqual(seen, [20, 41]);
 });

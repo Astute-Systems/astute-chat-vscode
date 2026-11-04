@@ -31,6 +31,8 @@ const fullAutoButton = element<HTMLButtonElement>("full-auto");
 const approvalCard = element<HTMLElement>("approval");
 const statusRow = element<HTMLElement>("status");
 const statusText = element<HTMLElement>("status-text");
+const contextUse = element<HTMLElement>("context-use");
+const contextButton = element<HTMLButtonElement>("chat-context");
 const input = element<HTMLTextAreaElement>("input");
 const form = element<HTMLFormElement>("composer");
 const dropzone = element<HTMLElement>("dropzone");
@@ -183,6 +185,16 @@ function linkFiles(body: HTMLElement): void {
 }
 
 /** Shows a tool call as a header and a small code window that starts at the end. */
+/** Above this share the prompt is at its limit, because the rest of the window is kept for the reply. */
+const CONTEXT_USE_HIGH = 75;
+
+function showContextUse(percent: number | undefined): void {
+  contextUse.hidden = percent === undefined;
+  contextUse.textContent = `Context ${percent ?? 0}%`;
+  contextUse.title = "How much of the context window the latest reply used. Older messages are summarised as it fills.";
+  contextUse.classList.toggle("high", (percent ?? 0) >= CONTEXT_USE_HIGH);
+}
+
 function renderTasks(parent: HTMLElement, tasks: Array<{ title: string; done: boolean }>): void {
   parent.querySelector(".tasks")?.remove();
   const list = create("ul", "tasks", parent);
@@ -687,6 +699,7 @@ function renderAll(state: ViewState): void {
   }
   setBusy(state.busy);
   statusText.textContent = state.status ?? "";
+  showContextUse(state.contextUse);
   if (state.pendingApproval) {
     showApproval(state.pendingApproval);
   }
@@ -738,6 +751,9 @@ window.addEventListener("message", (event: MessageEvent<ToWebview>) => {
     case "status":
       statusRow.hidden = false;
       statusText.textContent = message.text;
+      break;
+    case "contextUse":
+      showContextUse(message.percent);
       break;
     case "tool": {
       if (active) {
@@ -895,6 +911,7 @@ document.addEventListener("keydown", (event) => {
   }
 });
 historyButton.addEventListener("click", () => setHistoryOpen(historyList.hidden));
+contextButton.addEventListener("click", () => vscode.postMessage({ type: "openContext" }));
 newChatButton.addEventListener("click", () => {
   attached = [];
   attachmentError = "";
