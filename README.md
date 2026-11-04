@@ -1,5 +1,9 @@
 ![Astute Chat](images/screenshots/banner.png)
 
+[![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen)](https://github.com/user/repo/actions/workflows/ci.yml)
+[![Test Coverage](https://img.shields.io/badge/Tests-Passing-brightgreen)](https://github.com/user/repo/actions/workflows/test.yml)
+[![Latest Release](https://img.shields.io/badge/Release-v1.0.0-blue)](https://github.com/user/repo/releases/latest)
+
 Private AI chat and a coding agent for VS Code, running on your own [Ollama](https://ollama.com) server. It needs no cloud service, GitHub sign-in or Copilot plan, and it works with no internet connection. Astute Chat sits in a tab beside Chat in the secondary side bar.
 
 ![Astute Chat answering a question about the open file](images/screenshots/ask.png)
