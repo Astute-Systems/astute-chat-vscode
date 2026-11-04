@@ -29,15 +29,22 @@ class EventEmitter {
 const opened: string[] = [];
 const shownErrors: string[] = [];
 let failToOpen = false;
+const shownWarnings: string[] = [];
+let warningChoice: string | undefined;
 const vscodeStub = {
   EventEmitter,
   Uri: { file: (fsPath: string) => ({ fsPath }) },
   ProgressLocation: { Notification: 15 },
+  commands: { executeCommand: async () => undefined },
   window: {
     activeTextEditor: undefined,
     onDidChangeActiveTextEditor: () => ({ dispose: () => undefined }),
     showInformationMessage: async () => undefined,
     showErrorMessage: async (text: string) => void shownErrors.push(text),
+    showWarningMessage: async (_text: string, options: { detail: string }) => {
+      shownWarnings.push(options.detail);
+      return warningChoice;
+    },
     showTextDocument: async (uri: { fsPath: string }) => {
       if (failToOpen) {
         throw new Error("no editor");
@@ -478,6 +485,7 @@ test("a saved chat from an older version has no context file to remove", async (
 
 const PLAN_ONE = "## Goal\nAdd a cache\n\n## Steps\n1. Edit cache.ts";
 const PLAN_TWO = "## Goal\nRename the logger\n\n## Steps\n1. Edit log.ts";
+const PLAN_WITH_QUESTION = `${PLAN_ONE}\n\n## Open questions\n- Which cache size?`;
 
 /** Finishes a plan with each reply in turn, and returns the replies that became plans. */
 async function makePlans(provider: { receive(message: never): Promise<void>; send(text: string): Promise<void> }, options: { reply?: string }, store: Map<string, unknown>, plans: string[]): Promise<TranscriptEntry[]> {
@@ -514,7 +522,7 @@ test("a stopped plan isn't offered for implementing", async () => {
   const { provider, store } = makeProvider({
     commandSkills: () => [],
     runTurn: async ({ events }: ContextTurn) => {
-      events.onContent("half a plan");
+      events.onContent(PLAN_ONE);
       return { model: "m", summary: "Stopped", imageText: "", cancelled: true };
     },
   });
@@ -661,7 +669,7 @@ test("warns when a plan is too long for the model to see all of it", async () =>
   const { provider, store } = makeProvider(service);
   const [plan] = await makePlans(provider as never, options, store, [`${PLAN_ONE}\n${"- step\n".repeat(4000)}`]);
   await provider.receive({ type: "implementPlan", planId: plan.planId ?? "" });
-  const reply = (store.get("astuteChat.transcript") as TranscriptEntry[]).at(-1);
+  const reply = [...(store.get("astuteChat.transcript") as TranscriptEntry[])].reverse().find((entry) => entry.role === "assistant");
   assert.match(reply?.notices?.join() ?? "", /too long for the context window/);
   assert.ok((turns.at(-1)?.systemSection?.length ?? 0) < 8192);
 });
@@ -675,4 +683,319 @@ test("deleting a chat removes its plans", async () => {
   await provider.clear();
   await provider.deleteChat(provider.chatList[0].id);
   assert.equal(fs.existsSync(file), false);
+});
+
+test("a reply that's only a question isn't offered as a plan", async () => {
+  const options = { reply: "Which database do you use?" };
+  const { service } = contextService(options);
+  const { provider, store } = makeProvider(service);
+  await provider.receive({ type: "selectMode", mode: "plan" });
+  await provider.send("plan this");
+  assert.equal((store.get("astuteChat.transcript") as TranscriptEntry[]).some((entry) => entry.planId), false);
+});
+
+test("says when a plan has open questions", async () => {
+  const options = { reply: "short" };
+  const { service } = contextService(options);
+  const { provider, store } = makeProvider(service);
+  const [plan] = await makePlans(provider as never, options, store, [PLAN_WITH_QUESTION]);
+  assert.match(plan.notices?.join() ?? "", /has open questions/);
+});
+
+test("open questions stop a plan until you choose to go ahead", async () => {
+  const options = { reply: "short" };
+  const { service, turns } = contextService(options);
+  const { provider, store } = makeProvider(service);
+  const [plan] = await makePlans(provider as never, options, store, [PLAN_WITH_QUESTION]);
+  const before = turns.length;
+  warningChoice = undefined;
+  await provider.receive({ type: "implementPlan", planId: plan.planId ?? "" });
+  assert.match(shownWarnings.at(-1) ?? "", /Which cache size\?/);
+  assert.equal(turns.length, before);
+  assert.equal(store.get("astuteChat.mode"), "plan", "nothing changed");
+  warningChoice = "Implement Anyway";
+  await provider.receive({ type: "implementPlan", planId: plan.planId ?? "" }).finally(() => (warningChoice = undefined));
+  assert.equal(turns.length, before + 1);
+});
+
+test("answering a plan's questions by editing it clears the warning", async () => {
+  const options = { reply: "short" };
+  const { service, turns } = contextService(options);
+  const { provider, storage, store } = makeProvider(service);
+  const [plan] = await makePlans(provider as never, options, store, [PLAN_WITH_QUESTION]);
+  fs.writeFileSync(planPath(storage, plan.planId ?? ""), PLAN_WITH_QUESTION.replace("- Which cache size?", "None"));
+  const warned = shownWarnings.length;
+  const before = turns.length;
+  await provider.receive({ type: "implementPlan", planId: plan.planId ?? "" });
+  assert.equal(shownWarnings.length, warned);
+  assert.equal(turns.length, before + 1);
+});
+
+test("warns if planned files changed after the plan was written", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "astute-plan-"));
+  fs.writeFileSync(path.join(root, "cache.ts"), "// already edited, before the plan\n");
+  const workspace = vscodeStub.workspace as { workspaceFolders: unknown };
+  workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  try {
+    const options = { reply: "short" };
+    const { service, turns } = contextService(options);
+    const { provider, store } = makeProvider(service);
+    const [plan] = await makePlans(provider as never, options, store, ["## Goal\nCache\n\n## Files\n- cache.ts\n\n## Steps\n1. Edit it"]);
+    const warned = shownWarnings.length;
+    await provider.receive({ type: "implementPlan", planId: plan.planId ?? "" });
+    assert.equal(shownWarnings.length, warned, "edits from before the plan don't count");
+
+    await provider.receive({ type: "clearPlan" });
+    const before = turns.length;
+    fs.writeFileSync(path.join(root, "cache.ts"), "// changed since\n");
+    await provider.receive({ type: "implementPlan", planId: plan.planId ?? "" });
+    assert.match(shownWarnings.at(-1) ?? "", /changed since it was written: cache\.ts/);
+    assert.equal(turns.length, before);
+  } finally {
+    workspace.workspaceFolders = undefined;
+  }
+});
+
+interface StepTurn extends ContextTurn {
+  prompt: string;
+  signal: AbortSignal;
+  confirm(request: unknown): Promise<boolean>;
+}
+
+const THREE_STEPS = "## Goal\nAdd a cache\n\n## Steps\n1. Edit cache.ts\n2. Edit client.ts\n   - keep the API\n3. Add tests\n\n## Verify\nRun npm test";
+
+/** Finishes each step well unless told otherwise. `act` gets the step's number from 1. */
+function stepService(act?: (step: number, turn: StepTurn) => Partial<{ usedTools: boolean; unresolvedFailure: boolean; hitToolLimit: boolean; cancelled: boolean; reply: string }> | Promise<unknown> | undefined) {
+  const prompts: string[] = [];
+  const systems: Array<string | undefined> = [];
+  return {
+    prompts,
+    systems,
+    service: {
+      commandSkills: () => [],
+      summaryTarget: async () => WINDOW,
+      summarise: async () => "## Goal\n- ship it",
+      runTurn: async (turn: StepTurn) => {
+        const prepared = await turn.prepareHistory({ ...WINDOW, reservedTokens: 1000 });
+        prompts.push(turn.prompt);
+        systems.push(prepared.systemSection);
+        const number = Number(/Do step (\d+)/.exec(turn.prompt)?.[1] ?? 0);
+        const outcome = ((await act?.(number, turn)) ?? {}) as { reply?: string };
+        turn.events.onContent(outcome.reply ?? "Done, and checked.");
+        return { model: "m", summary: "done", imageText: "", cancelled: false, usedTools: true, ...outcome };
+      },
+    },
+  };
+}
+
+/** Makes a plan in Plan mode, then starts it. */
+async function startPlan(provider: { receive(message: never): Promise<void>; send(text: string): Promise<void> }, store: Map<string, unknown>, service: { runTurn(turn: never): Promise<unknown> }, plan = THREE_STEPS): Promise<void> {
+  const real = service.runTurn;
+  service.runTurn = (async (turn: ContextTurn) => {
+    await turn.prepareHistory({ ...WINDOW, reservedTokens: 1000 });
+    turn.events.onContent(plan);
+    return { model: "m", summary: "done", imageText: "", cancelled: false };
+  }) as never;
+  await provider.receive({ type: "selectMode", mode: "plan" } as never);
+  await provider.send("plan this");
+  service.runTurn = real;
+  const entry = (store.get("astuteChat.transcript") as TranscriptEntry[]).find((candidate) => candidate.planId);
+  await provider.receive({ type: "implementPlan", planId: entry?.planId ?? "" } as never);
+}
+
+/** Waits for something a running plan does, because saving files takes a varying time. */
+async function until(happened: () => boolean): Promise<void> {
+  for (let tries = 0; tries < 200 && !happened(); tries += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.ok(happened(), "it never happened");
+}
+
+const transcriptOf = (store: Map<string, unknown>) => store.get("astuteChat.transcript") as TranscriptEntry[];
+const activeDone = (store: Map<string, unknown>) => (store.get("astuteChat.activePlan") as { done: number } | undefined)?.done;
+const lastInfo = (store: Map<string, unknown>) => [...transcriptOf(store)].reverse().find((entry) => entry.role === "info")?.content ?? "";
+
+test("runs a plan one turn per step, in order, then checks the work and lets the plan go", async () => {
+  const { service, prompts, systems } = stepService();
+  const { provider, store } = makeProvider(service);
+  await startPlan(provider as never, store, service as never);
+  assert.equal(prompts.length, 4);
+  assert.match(prompts[0], /Do step 1 of 4[^\n]*\nEdit cache\.ts/);
+  assert.match(prompts[1], /Do step 2 of 4[^\n]*\nEdit client\.ts\n- keep the API/);
+  assert.match(prompts[3], /Check the finished work: Run npm test/);
+  assert.ok(systems.every((system) => system?.includes("<approved-plan>")), "every step can see the whole plan");
+  assert.equal(store.get("astuteChat.activePlan"), undefined);
+  assert.match(lastInfo(store), /Plan finished: all 4 steps ran/);
+  assert.match(transcriptOf(store).find((entry) => entry.content.startsWith("Step 2"))?.content ?? "", /^Step 2 of 4: Edit client\.ts$/);
+});
+
+for (const [name, outcome, reason] of [
+  ["a failure left behind", { unresolvedFailure: true }, /still failing/],
+  ["running out of tool rounds", { hitToolLimit: true }, /ran out of tool rounds/],
+  ["a step with no tools used", { usedTools: false }, /didn't use any tools/],
+  ["a claim of success with no tools", { usedTools: false, reply: "All done!" }, /didn't use any tools/],
+  ["a question", { reply: "Which file should I use?" }, /has a question/],
+  ["being stopped", { cancelled: true }, /You stopped it/],
+] as const) {
+  test(`pauses on ${name}, without counting the step`, async () => {
+    const { service, prompts } = stepService((step) => (step === 2 ? outcome : undefined));
+    const { provider, store } = makeProvider(service);
+    await startPlan(provider as never, store, service as never);
+    assert.equal(prompts.length, 2, "later steps don't run");
+    assert.equal(activeDone(store), 1);
+    assert.match(lastInfo(store), reason);
+    assert.match(lastInfo(store), /Paused at step 2 of 4/);
+  });
+}
+
+test("pauses when a change is denied, even if the model carries on and says it's done", async () => {
+  const { service, prompts } = stepService(async (step, turn) => {
+    if (step === 1) {
+      await turn.confirm({ kind: "edit", title: "Edit?", detail: "a.ts", file: "a.ts" });
+    }
+    return undefined;
+  });
+  const { provider, store } = makeProvider(service);
+  const running = startPlan(provider as never, store, service as never);
+  await until(() => provider.pendingApprovalId !== undefined);
+  await provider.receive({ type: "approvalDecision", id: provider.pendingApprovalId ?? 0, decision: "deny" });
+  await running;
+  assert.equal(prompts.length, 1);
+  assert.equal(activeDone(store), 0);
+  assert.match(lastInfo(store), /A change was denied/);
+});
+
+test("pauses when a turn throws, and keeps the step", async () => {
+  const { service, prompts } = stepService((step) => {
+    if (step === 2) {
+      throw new Error("Ollama went away.");
+    }
+    return undefined;
+  });
+  const { provider, store } = makeProvider(service);
+  await startPlan(provider as never, store, service as never);
+  assert.equal(prompts.length, 2);
+  assert.equal(activeDone(store), 1);
+  assert.match(lastInfo(store), /Ollama went away\./);
+});
+
+test("Continue tries the paused step again, says so, and finishes the plan", async () => {
+  let failing = true;
+  const { service, prompts } = stepService((step) => (step === 2 && failing ? { hitToolLimit: true } : undefined));
+  const { provider, store } = makeProvider(service);
+  await startPlan(provider as never, store, service as never);
+  failing = false;
+  await provider.receive({ type: "continuePlan" });
+  assert.match(prompts[2], /Do step 2 of 4/);
+  assert.match(prompts[2], /wasn't finished last time/);
+  assert.doesNotMatch(prompts[3], /wasn't finished last time/);
+  assert.equal(prompts.filter((prompt) => prompt.includes("Do step 1")).length, 1, "finished steps aren't repeated");
+  assert.equal(store.get("astuteChat.activePlan"), undefined);
+});
+
+test("you can answer a question in the chat, then Continue", async () => {
+  let asking = true;
+  const { service, prompts, systems } = stepService((step) => (step === 1 && asking ? { reply: "Which cache size?" } : undefined));
+  const { provider, store } = makeProvider(service);
+  await startPlan(provider as never, store, service as never);
+  asking = false;
+  await provider.send("Use 100 entries.");
+  assert.equal(prompts.at(-1), "Use 100 entries.");
+  assert.match(systems.at(-1) ?? "", /<approved-plan>/);
+  assert.equal(activeDone(store), 0, "a chat reply doesn't finish a step");
+  await provider.receive({ type: "continuePlan" });
+  assert.equal(store.get("astuteChat.activePlan"), undefined);
+});
+
+test("selecting Implement on a part-done plan picks it up instead of starting over", async () => {
+  let failing = true;
+  const { service, prompts } = stepService((step) => (step === 2 && failing ? { hitToolLimit: true } : undefined));
+  const { provider, store } = makeProvider(service);
+  await startPlan(provider as never, store, service as never);
+  failing = false;
+  const entry = transcriptOf(store).find((candidate) => candidate.planId);
+  await provider.receive({ type: "implementPlan", planId: entry?.planId ?? "" });
+  assert.equal(prompts.filter((prompt) => prompt.includes("Do step 1")).length, 1);
+});
+
+test("edits to the plan during a pause are followed", async () => {
+  let failing = true;
+  const { service, prompts } = stepService((step) => (step === 2 && failing ? { hitToolLimit: true } : undefined));
+  const { provider, storage, store } = makeProvider(service);
+  await startPlan(provider as never, store, service as never);
+  failing = false;
+  const entry = transcriptOf(store).find((candidate) => candidate.planId);
+  fs.writeFileSync(planPath(storage, entry?.planId ?? ""), THREE_STEPS.replace("Edit client.ts", "Edit server.ts"));
+  await provider.receive({ type: "continuePlan" });
+  assert.match(prompts[2], /Edit server\.ts/);
+});
+
+test("Continue does nothing with no plan, or while a step is running", async () => {
+  let release = (): void => undefined;
+  const { service, prompts } = stepService((step) => (step === 1 ? new Promise<void>((resolve) => (release = resolve)) : undefined));
+  const { provider, store } = makeProvider(service);
+  await provider.receive({ type: "continuePlan" });
+  assert.equal(prompts.length, 0);
+  const running = startPlan(provider as never, store, service as never);
+  await until(() => prompts.length === 1);
+  await provider.receive({ type: "continuePlan" });
+  await provider.send("too soon");
+  assert.equal(prompts.length, 1);
+  release();
+  await running;
+  assert.equal(prompts.length, 4);
+});
+
+test("New Chat stops a running plan", async () => {
+  const { service, prompts } = stepService((step, turn) => (step === 1 ? new Promise((resolve) => turn.signal.addEventListener("abort", () => resolve({ cancelled: true }))) : undefined));
+  const { provider, store } = makeProvider(service);
+  const running = startPlan(provider as never, store, service as never);
+  await until(() => prompts.length === 1);
+  await provider.clear();
+  await running;
+  assert.equal(prompts.length, 1);
+  assert.equal(store.get("astuteChat.activePlan"), undefined);
+});
+
+test("removing the plan between steps stops the rest", async () => {
+  let release = (): void => undefined;
+  const { service, prompts } = stepService((step) => (step === 1 ? new Promise<void>((resolve) => (release = resolve)) : undefined));
+  const { provider, store } = makeProvider(service);
+  const running = startPlan(provider as never, store, service as never);
+  await until(() => prompts.length === 1);
+  await provider.receive({ type: "clearPlan" });
+  release();
+  await running;
+  assert.equal(prompts.length, 1);
+  assert.equal(store.get("astuteChat.activePlan"), undefined, "finishing the step doesn't bring it back");
+  assert.equal(provider.chatRows.length > 0, true);
+});
+
+test("a saved chat comes back paused, and can be continued", async () => {
+  let failing = true;
+  const { service, prompts } = stepService((step) => (step === 2 && failing ? { hitToolLimit: true } : undefined));
+  const { provider, store } = makeProvider(service);
+  await startPlan(provider as never, store, service as never);
+  failing = false;
+  await provider.clear();
+  await provider.openSavedChat(provider.chatList[0].id);
+  await provider.receive({ type: "continuePlan" });
+  assert.equal(prompts.filter((prompt) => prompt.includes("Do step 1")).length, 1);
+  assert.equal(store.get("astuteChat.activePlan"), undefined);
+});
+
+test("New Chat as a step finishes stops the plan, and the next step can't land in the new chat", async () => {
+  let cleared: Promise<void> | undefined;
+  const { service, prompts } = stepService((step) => {
+    if (step === 1) {
+      cleared = provider.clear();
+    }
+    return undefined;
+  });
+  const { provider, store } = makeProvider(service);
+  await startPlan(provider as never, store, service as never);
+  await cleared;
+  assert.equal(prompts.length, 1, "the step ended normally, and nothing else ran");
+  assert.equal(store.get("astuteChat.activePlan"), undefined);
+  assert.deepEqual(transcriptOf(store), [], "the new chat is empty");
 });

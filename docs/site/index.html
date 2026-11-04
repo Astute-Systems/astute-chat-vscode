@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Astute Chat documentation</title>
+<title>Astute Code documentation</title>
 <link rel="icon" href="images/icon.png">
 <style>
 @font-face { font-family: "Astute Vector"; font-weight: 400; src: url("fonts/orbitron-latin-400-normal.woff2") format("woff2"); }
@@ -23,8 +23,8 @@ nav a:hover { color: var(--accent); }
 main { min-width: 0; padding: 28px 0 64px; }
 main img { display: block; max-width: 100%; margin: 20px 0; border: 1px solid var(--line); border-radius: 6px; }
 main p:first-child img { width: 100%; }
-main p img[alt*="Astute Chat"], main p img[alt*="Agent"], main p img[alt*="approval"] { max-width: 440px; }
-main p:first-child img[alt="Astute Chat"] { max-width: 100%; }
+main p img[alt*="Astute Code"], main p img[alt*="Agent"], main p img[alt*="approval"] { max-width: 440px; }
+main p:first-child img[alt="Astute Code"] { max-width: 100%; }
 h1, h2, h3 { color: var(--blue); font-family: "Astute Vector", sans-serif; line-height: 1.3; text-shadow: 0 0 5px rgba(92, 200, 255, 0.45); }
 h2 { margin-top: 48px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
 a { color: var(--accent); }
@@ -42,7 +42,7 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <body>
 <div class="layout">
 <nav aria-label="Contents">
-<div class="brand"><img src="images/icon.png" alt="">Astute Chat</div>
+<div class="brand"><img src="images/icon.png" alt="">Astute Code</div>
 <span class="version">Version 0.17.0</span>
 <a href="#features">Features</a>
 <a href="#requirements">Requirements</a>
@@ -74,12 +74,12 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <a href="#develop">Develop</a>
 </nav>
 <main>
-<p><img src="images/screenshots/banner.png" alt="Astute Chat"></p>
+<p><img src="images/screenshots/banner.png" alt="Astute Code"></p>
 <p><a href="https://github.com/user/repo/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/Build-Passing-brightgreen" alt="Build Status"></a>
 <a href="https://github.com/user/repo/actions/workflows/test.yml"><img src="https://img.shields.io/badge/Tests-Passing-brightgreen" alt="Test Coverage"></a>
 <a href="https://github.com/user/repo/releases/latest"><img src="https://img.shields.io/badge/Release-v1.0.0-blue" alt="Latest Release"></a></p>
-<p>Private AI chat and a coding agent for VS Code, running on your own <a href="https://ollama.com">Ollama</a> server. It needs no cloud service, GitHub sign-in or Copilot plan, and it works with no internet connection. Astute Chat sits in a tab beside Chat in the secondary side bar.</p>
-<p><img src="images/screenshots/ask.png" alt="Astute Chat answering a question about the open file"></p>
+<p>Private AI chat and a coding agent for VS Code, running on your own <a href="https://ollama.com">Ollama</a> server. It needs no cloud service, GitHub sign-in or Copilot plan, and it works with no internet connection. Astute Code sits in a tab beside Chat in the secondary side bar.</p>
+<p><img src="images/screenshots/ask.png" alt="Astute Code answering a question about the open file"></p>
 <h2 id="features">Features</h2>
 <ul>
 <li><strong>Ask, Plan and Agent modes</strong>, chosen below the message box</li>
@@ -106,8 +106,8 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <li>At least one Ollama model. Agent mode needs a model that supports tools, and images need one with vision. A GPU makes a large difference to speed. For resource-constrained environments, consider using small models like <code>tinyllama</code>.</li>
 </ul>
 <h2 id="privacy">Privacy</h2>
-<p>Astute Chat has no telemetry. Your prompts, code and images go only to the Ollama server you choose. The default server is on your own machine. If you turn on <a href="#web-research">web research</a>, search queries go to DuckDuckGo or your own search server, and the addresses models open are contacted directly.</p>
-<p>Ollama also offers cloud models, with names ending in <code>:cloud</code>, which run on Ollama's servers and need <code>ollama signin</code>. They're marked ☁ in the model list. Your prompts and code leave your computer when you use one, so Astute Chat never picks one by itself. It only uses one you've chosen.</p>
+<p>Astute Code has no telemetry. Your prompts, code and images go only to the Ollama server you choose. The default server is on your own machine. If you turn on <a href="#web-research">web research</a>, search queries go to DuckDuckGo or your own search server, and the addresses models open are contacted directly.</p>
+<p>Ollama also offers cloud models, with names ending in <code>:cloud</code>, which run on Ollama's servers and need <code>ollama signin</code>. They're marked ☁ in the model list. Your prompts and code leave your computer when you use one, so Astute Code never picks one by itself. It only uses one you've chosen.</p>
 <h2 id="modes">Modes</h2>
 <div class="table"><table>
 <thead>
@@ -135,7 +135,8 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 </tr>
 </tbody>
 </table></div>
-<p>Switch modes with the selector, or start a message with <code>/ask</code>, <code>/plan</code> or <code>/agent</code>. After a plan, select <strong>Edit plan</strong> to change it, or <strong>Implement in Agent mode</strong> to carry it out. Each plan is saved as its own file in the extension's storage. Agent receives your saved edits, and keeps the plan in view while it works, so a long chat can't summarise it away. The plan appears above the message box, and selecting × there stops Agent following it.</p>
+<p>Switch modes with the selector, or start a message with <code>/ask</code>, <code>/plan</code> or <code>/agent</code>. Plan may ask up to three questions first, and it reads your code before it answers. The extension checks each plan, and sends it back once if headings are missing or a named file doesn't exist. After a plan, select <strong>Edit plan</strong> to change it, or <strong>Implement in Agent mode</strong> to carry it out. You're warned first if the plan still has open questions, or if its files have changed since it was written. Each plan is saved as its own file in the extension's storage. Agent receives your saved edits, and keeps the plan in view while it works, so a long chat can't summarise it away.</p>
+<p>Agent carries out a plan one step at a time, then checks the work as the plan says. A step counts as done only if tools ran and nothing was left failing. If a step fails, runs out of tool rounds, has a change denied or ends in a question, the plan pauses so you can answer in the chat and select <strong>Continue</strong>. Progress and the steps appear above the message box, and selecting × there stops the plan. &quot;Allow edits this turn&quot; lasts for one step.</p>
 <p>In every mode, models can run read-only checks without asking, such as <code>git status</code>, <code>git log</code>, <code>git grep</code>, <code>sed -n 10,20p</code>, <code>uname -a</code>, <code>df -h</code> and <code>ollama list</code>. Ask and Plan stop there. Agent can also run any command, such as <code>git commit</code>, builds and service restarts, subject to your approval level. Commands can't answer prompts, so <code>sudo</code> works only if it needs no password.</p>
 <p>Agent mode needs a model that supports tools. If the selected model can't use them, Agent picks one that can and tells you which. To always use one model for Agent, set <code>astuteChat.agentModel</code>. Agent's file tools can't write outside the workspace, and they won't touch <code>.git</code>, <code>.env</code> files or private keys. Read-only checks can't reach those files either, but a shell command you approve isn't limited in this way.</p>
 <p><img src="images/screenshots/agent.png" alt="Agent mode building a library in small code windows"></p>
@@ -172,10 +173,10 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <p>Each auto-approved action appears in the chat and in the logs.</p>
 <p><img src="images/screenshots/approval.png" alt="An approval card waiting for a decision"></p>
 <h3 id="auto">Auto</h3>
-<p>The lightning <strong>Auto</strong> toggle beside Send turns off all approvals in Agent mode, including for shell commands, which can do anything your user account can. Agent still can't write outside the workspace, change <code>.git</code> or secret files, or create dummy files, but a command isn't limited in this way. Use version control, and only use Auto on projects and models you trust. Every action is listed in <strong>Astute Chat: Show Logs</strong>. Select <strong>Stop</strong> or press Esc to end a run.</p>
+<p>The lightning <strong>Auto</strong> toggle beside Send turns off all approvals in Agent mode, including for shell commands, which can do anything your user account can. Agent still can't write outside the workspace, change <code>.git</code> or secret files, or create dummy files, but a command isn't limited in this way. Use version control, and only use Auto on projects and models you trust. Every action is listed in <strong>Astute Code: Show Logs</strong>. Select <strong>Stop</strong> or press Esc to end a run.</p>
 <h2 id="file-and-folder-context">File and folder context</h2>
 <p>The file you have open goes with each message, including unsaved changes, so you can say &quot;this file&quot;. It appears as a small tag above the message box, where you can remove it. If you've selected code, only the selection is sent. Files that may hold secrets, such as <code>.env</code>, are never added, and text you select in them isn't sent either.</p>
-<p>To add other files or a folder, type <code>@</code> in the message box and pick one, right-click them in the Explorer and choose <strong>Add to Astute Chat</strong>, or drag them onto the chat. A folder tells the model where to work, and new files go there unless you say otherwise. Long files are shortened, and models with tools can read the rest. <strong>New Chat</strong> clears these.</p>
+<p>To add other files or a folder, type <code>@</code> in the message box and pick one, right-click them in the Explorer and choose <strong>Add to Astute Code</strong>, or drag them onto the chat. A folder tells the model where to work, and new files go there unless you say otherwise. Long files are shortened, and models with tools can read the rest. <strong>New Chat</strong> clears these.</p>
 <h2 id="images">Images</h2>
 <p>Drag a PNG or JPEG onto the chat, from your desktop or the VS Code Explorer, or paste one into the message box. If VS Code asks you to, hold Shift as you drop. Models can also open images in the workspace themselves, so you can ask something like &quot;What does docs/screenshot.png show?&quot;.</p>
 <p>If the chat model has no vision support, a vision model reads the image first and passes a description and any text to the chat model. Set this with <code>astuteChat.visionModel</code>, or leave it empty to use the smallest local model with vision. Small models can miss details, so choose a larger one if exact text matters.</p>
@@ -208,22 +209,22 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <pre><code class="language-json">&quot;astuteChat.web.enabled&quot;: true
 </code></pre>
 <p>Models can then search the web and read pages in Ask, Plan and Agent. Searches go to DuckDuckGo, by reading its HTML results page, so they can stop working or be limited if it changes.</p>
-<p>For more privacy, run your own <a href="https://docs.searxng.org">SearXNG</a> server with <code>json</code> added to <code>search.formats</code> in its <code>settings.yml</code>, and point Astute Chat at it:</p>
+<p>For more privacy, run your own <a href="https://docs.searxng.org">SearXNG</a> server with <code>json</code> added to <code>search.formats</code> in its <code>settings.yml</code>, and point Astute Code at it:</p>
 <pre><code class="language-json">&quot;astuteChat.web.searchUrl&quot;: &quot;http://127.0.0.1:8888&quot;
 </code></pre>
 <p>Each search and each page asks first, showing the query or address, at every level except full <strong>Auto</strong>. Check these before you approve them, because a model could be tricked into putting private details in one. Web tools need a model that supports tools and an open, trusted folder.</p>
 <p>Models can't open addresses on your computer or private network, even through a redirect, unless you turn on <code>astuteChat.web.allowPrivateAddresses</code>. Only your own search server is exempt. Pages are limited to text, and long ones are shortened, so a larger <code>astuteChat.numCtx</code> helps with research.</p>
 <h2 id="chat-history">Chat history</h2>
-<p><strong>New Chat</strong> saves the current chat. If a reply is still running, it stops the reply first and saves what arrived. To reopen or delete a saved chat, use the history icon at the top of the tab, or expand the <strong>Chats</strong> section below the chat. Astute Chat keeps your last 30 chats for each workspace, on this computer. Large tool output isn't kept in saved chats.</p>
+<p><strong>New Chat</strong> saves the current chat. If a reply is still running, it stops the reply first and saves what arrived. To reopen or delete a saved chat, use the history icon at the top of the tab, or expand the <strong>Chats</strong> section below the chat. Astute Code keeps your last 30 chats for each workspace, on this computer. Large tool output isn't kept in saved chats.</p>
 <p>Astute chats don't appear in VS Code's own Chat session list, because the API for that is only open to a few extensions.</p>
 <h2 id="finding-code">Finding code</h2>
-<p>In a trusted workspace, Astute Chat reads your project's manifests, such as <code>package.json</code>, <code>pyproject.toml</code>, <code>Cargo.toml</code>, <code>go.mod</code> and <code>CMakeLists.txt</code>, and tells the model the project type, entry points, build commands and top folders. It uses only names and paths from those files, not their free text.</p>
+<p>In a trusted workspace, Astute Code reads your project's manifests, such as <code>package.json</code>, <code>pyproject.toml</code>, <code>Cargo.toml</code>, <code>go.mod</code> and <code>CMakeLists.txt</code>, and tells the model the project type, entry points, build commands and top folders. It uses only names and paths from those files, not their free text.</p>
 <p>Models can search the workspace from a plain description, such as &quot;where do we retry a connection&quot;. This ranks code by the words it shares with the description, including the parts of names like <code>runChat</code>. It needs no extra model and works offline, but it doesn't understand meaning, so it can miss code that uses different words.</p>
 <h2 id="errors-and-terminal-output">Errors and terminal output</h2>
 <p>Models can read VS Code's Problems panel, and your recent terminal commands with their output, so you can say &quot;fix that error&quot;. Terminal reading needs VS Code shell integration, which is on by default for bash, zsh, fish and PowerShell. Terminal output goes to the model only when it asks for it, so take care if your commands print secrets.</p>
 <p>If a command fails in Agent mode, the model is sent back to fix it, up to three times. If it's still failing at the end, the chat says so.</p>
-<p>Long chats are summarised automatically, using the model answering the chat, so earlier decisions survive the context limit. This adds a short pause when it happens. To do it sooner, run <strong>Astute Chat: Update Chat Context</strong>. The figure next to the Send button shows how full the context window is, and it updates during a reply.</p>
-<p>Each chat keeps its summary in its own <code>context.txt</code>, with a record of the files and commands it used. The file is in the extension's storage rather than your project, so it can't be committed, and Ask and Plan still change nothing in your workspace. Open it with the document button at the top of the panel, or <strong>Astute Chat: Open Chat Context</strong>. You can edit it, and saved edits are used on the next message. Text under <code>## Notes</code> is yours and is never rewritten, and deleting the file makes the chat summarise again from its stored messages.</p>
+<p>Long chats are summarised automatically, using the model answering the chat, so earlier decisions survive the context limit. This adds a short pause when it happens. To do it sooner, run <strong>Astute Code: Update Chat Context</strong>. The figure next to the Send button shows how full the context window is, and it updates during a reply.</p>
+<p>Each chat keeps its summary in its own <code>context.txt</code>, with a record of the files and commands it used. The file is in the extension's storage rather than your project, so it can't be committed, and Ask and Plan still change nothing in your workspace. Open it with the document button at the top of the panel, or <strong>Astute Code: Open Chat Context</strong>. You can edit it, and saved edits are used on the next message. Text under <code>## Notes</code> is yours and is never rewritten, and deleting the file makes the chat summarise again from its stored messages.</p>
 <h2 id="checking-its-work">Checking its work</h2>
 <p>After each file change, Agent checks the language server for new errors in that file. If there are any, it's told to fix them, up to three times, and the chat says so if they remain. Agent can also run your project's tests, using <code>npm test</code>, <code>pytest</code>, <code>cargo test</code>, <code>go test</code>, <code>ctest</code> or <code>make test</code>. The test command comes from your project, and it needs your approval like any other command.</p>
 <p>In every mode, models can ask the language server where a function is defined and where it's used. This needs a language server for that file type, and otherwise they use text search.</p>
@@ -235,10 +236,10 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <h2 id="set-up">Set up</h2>
 <ol>
 <li>Start Ollama, and install a model with <code>ollama pull &lt;model&gt;</code>.</li>
-<li>Install Astute Chat from the Extensions view. To install a VSIX file instead, run <code>code --install-extension astute-chat-ollama-0.16.1.vsix</code>.</li>
-<li>Open the <strong>Astute</strong> tab beside Chat. If it's hidden, run <strong>Astute Chat: Open Chat</strong>.</li>
+<li>Install Astute Code from the Extensions view. To install a VSIX file instead, run <code>code --install-extension astute-chat-ollama-0.16.1.vsix</code>.</li>
+<li>Open the <strong>Astute Code</strong> tab beside Chat. If it's hidden, run <strong>Astute Code: Open Chat</strong>.</li>
 </ol>
-<p>To use another server, run <strong>Astute Chat: Set Server Address</strong>, or use the server icon on the tab. The address shows in the status bar. Enter an IP address or hostname with an optional port, such as <code>192.168.1.20:11434</code>.</p>
+<p>To use another server, run <strong>Astute Code: Set Server Address</strong>, or use the server icon on the tab. The address shows in the status bar. Enter an IP address or hostname with an optional port, such as <code>192.168.1.20:11434</code>.</p>
 <p>A remote server must listen on your network, so set <code>OLLAMA_HOST=0.0.0.0</code> on that server. Ollama has no authentication and plain HTTP isn't encrypted, so use it only on a network you trust or behind a TLS proxy.</p>
 <h2 id="use-it-offline">Use it offline</h2>
 <p>The extension bundles everything it needs, including its fonts. To set up an air-gapped machine:</p>
@@ -254,10 +255,10 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <li><strong>Terminal font:</strong> Astute Vector Mono at size 13, a monospaced font made from the chat tab's vector font.</li>
 <li><strong>Code font:</strong> the editor, debug console and source control message box use Courier Prime, the same font as code in the chat tab.</li>
 </ul>
-<p>Turning it off restores your previous theme, fonts and terminal size, apart from any you changed while it was on. If you uninstall Astute Chat, turn it off first.</p>
+<p>Turning it off restores your previous theme, fonts and terminal size, apart from any you changed while it was on. If you uninstall Astute Code, turn it off first.</p>
 <p>VS Code can't use fonts from an extension outside its own tabs, so both fonts must be installed on your computer:</p>
 <ul>
-<li><strong>Astute Vector Mono:</strong> run <strong>Astute Chat: Install Astute Vector Mono Font</strong>. On Linux and macOS this copies two files to your user font folder after you confirm, and on Windows it opens the folder so you can install them. It can't install on a remote computer, so run it in a local window.</li>
+<li><strong>Astute Vector Mono:</strong> run <strong>Astute Code: Install Astute Vector Mono Font</strong>. On Linux and macOS this copies two files to your user font folder after you confirm, and on Windows it opens the folder so you can install them. It can't install on a remote computer, so run it in a local window.</li>
 <li><strong>Courier Prime:</strong> install it from <a href="https://fonts.google.com/specimen/Courier+Prime">Google Fonts</a>.</li>
 </ul>
 <p>Until then, VS Code uses Courier New or your system's monospace font. To remove the terminal font later, delete <code>~/.local/share/fonts/astute-vector-mono</code> on Linux, or the <code>AstuteVectorMono</code> files in <code>~/Library/Fonts</code> on macOS.</p>
@@ -304,9 +305,9 @@ Your instructions here.
 </code></pre>
 <p>Skills and file tools are turned off until you trust the workspace.</p>
 <h3 id="built-in-language-skills">Built-in language skills</h3>
-<p>Astute Chat includes short, experimental C, C++ and Python guidance. It's off by default, because it didn't improve results in testing. To try it, set <code>astuteChat.languageSkills</code> to <code>true</code>. It then applies when your request, open file or project uses that language, and <strong>Astute Chat: Show Logs</strong> lists which skills were used. To replace one, add a workspace skill named <code>c</code>, <code>cpp</code> or <code>python</code>.</p>
+<p>Astute Code includes short, experimental C, C++ and Python guidance. It's off by default, because it didn't improve results in testing. To try it, set <code>astuteChat.languageSkills</code> to <code>true</code>. It then applies when your request, open file or project uses that language, and <strong>Astute Code: Show Logs</strong> lists which skills were used. To replace one, add a workspace skill named <code>c</code>, <code>cpp</code> or <code>python</code>.</p>
 <h3 id="agents-md"><a href="http://AGENTS.md">AGENTS.md</a></h3>
-<p>Astute Chat follows an <code>AGENTS.md</code> file in your workspace, the same format many other coding agents read. The file closest to the code you have open is used, and only its first 4,000 characters.</p>
+<p>Astute Code follows an <code>AGENTS.md</code> file in your workspace, the same format many other coding agents read. The file closest to the code you have open is used, and only its first 4,000 characters.</p>
 <h2 id="settings">Settings</h2>
 <div class="table"><table>
 <thead>
@@ -430,12 +431,12 @@ Your instructions here.
 <li>Check that Ollama is using the GPU: <code>ollama ps</code> shows <code>100% GPU</code> when it is.</li>
 <li>Run one model at a time. Two models at once slow each other down, and the chat warns you when this happens.</li>
 <li>Lower <code>astuteChat.numThread</code> if your computer is busy.</li>
-<li>Use <strong>Astute Chat: Show Logs</strong> to see connection details and errors.</li>
+<li>Use <strong>Astute Code: Show Logs</strong> to see connection details and errors.</li>
 </ul>
 <h2 id="astute-in-the-chat-view"><code>@astute</code> in the Chat view</h2>
-<p><code>@astute</code> still works, but VS Code has deprecated chat participants. It always runs as Ask, and new features go in the Astute tab.</p>
+<p><code>@astute</code> still works, but VS Code has deprecated chat participants. It always runs as Ask, and new features go in the Astute Code tab.</p>
 <h2 id="licence">Licence</h2>
-<p>Astute Chat is released under the MIT licence. The Astute Systems and Astute Chat names and logos are not covered by that licence. Bundled software and fonts are listed in <code>ThirdPartyNotices.txt</code>.</p>
+<p>Astute Code is released under the MIT licence. The Astute Systems and Astute Code names and logos are not covered by that licence. Bundled software and fonts are listed in <code>ThirdPartyNotices.txt</code>.</p>
 <p>To report a security problem, see <a href="SECURITY.md">SECURITY.md</a>.</p>
 <h2 id="develop">Develop</h2>
 <pre><code class="language-bash">npm install

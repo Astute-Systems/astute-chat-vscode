@@ -53,7 +53,8 @@ export const MODES: Record<ChatMode, ModeDefinition> = {
     requiresTools: false,
     maxToolRounds: 10,
     instructions:
-      "You are in Plan mode. Research the workspace, then write an implementation plan using exactly these headings, in this order: ## Goal, ## Files, ## Steps, ## Verify, ## Risks, ## Open questions. Goal is one or two sentences. Files lists each file to change, and marks new ones as new. Steps is a numbered list in order, and each step names its file and how to check it. Verify says how to check the finished work. Write None under Risks or Open questions if there aren't any. Keep the plan short, because it's kept in view while the work is done. Use probe_command for git and system facts. Do not write the full implementation, and never say that you changed something. You cannot change the workspace in this mode.",
+      "You are in Plan mode. Research the workspace, then write an implementation plan using exactly these headings, in this order: ## Goal, ## Files, ## Steps, ## Verify, ## Risks, ## Open questions. Goal is one or two sentences. Files lists each file to change, and marks new ones as new. Steps is a numbered list in order, and each step names its file and how to check it. Verify says how to check the finished work. Write None under Risks if there aren't any. Under Open questions, list at most three things only the user can answer, and write None if you can decide everything from the code. Keep the plan short, because it's kept in view while the work is done. Use probe_command for git and system facts. Do not write the full implementation, and never say that you changed something. You cannot change the workspace in this mode.",
+    retryPrompt: "You wrote that without reading the code. Use your tools to read the files involved, then write the whole plan again.",
   },
   agent: {
     id: "agent",

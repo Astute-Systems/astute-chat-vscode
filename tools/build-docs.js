@@ -22,7 +22,7 @@ fs.rmSync(output, { recursive: true, force: true });
 fs.mkdirSync(path.join(output, "images", "screenshots"), { recursive: true });
 fs.cpSync(path.join(root, "images", "screenshots"), path.join(output, "images", "screenshots"), { recursive: true });
 fs.cpSync(path.join(root, "media", "fonts"), path.join(output, "fonts"), { recursive: true });
-fs.copyFileSync(path.join(root, "images", "astute-chat", "Astute_Chat_Icon_Extension.png"), path.join(output, "images", "icon.png"));
+fs.copyFileSync(path.join(root, "images", "astute-code", "Astute_Code_Icon_Extension.png"), path.join(output, "images", "icon.png"));
 
 const body = markdown.render(fs.readFileSync(path.join(root, "README.md"), "utf8"));
 const contents = headings.map((text) => `<a href="#${slug(text)}">${markdown.utils.escapeHtml(text)}</a>`).join("\n");
@@ -33,7 +33,7 @@ const page = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Astute Chat documentation</title>
+<title>Astute Code documentation</title>
 <link rel="icon" href="images/icon.png">
 <style>
 @font-face { font-family: "Astute Vector"; font-weight: 400; src: url("fonts/orbitron-latin-400-normal.woff2") format("woff2"); }
@@ -53,8 +53,8 @@ nav a:hover { color: var(--accent); }
 main { min-width: 0; padding: 28px 0 64px; }
 main img { display: block; max-width: 100%; margin: 20px 0; border: 1px solid var(--line); border-radius: 6px; }
 main p:first-child img { width: 100%; }
-main p img[alt*="Astute Chat"], main p img[alt*="Agent"], main p img[alt*="approval"] { max-width: 440px; }
-main p:first-child img[alt="Astute Chat"] { max-width: 100%; }
+main p img[alt*="Astute Code"], main p img[alt*="Agent"], main p img[alt*="approval"] { max-width: 440px; }
+main p:first-child img[alt="Astute Code"] { max-width: 100%; }
 h1, h2, h3 { color: var(--blue); font-family: "Astute Vector", sans-serif; line-height: 1.3; text-shadow: 0 0 5px rgba(92, 200, 255, 0.45); }
 h2 { margin-top: 48px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
 a { color: var(--accent); }
@@ -72,7 +72,7 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <body>
 <div class="layout">
 <nav aria-label="Contents">
-<div class="brand"><img src="images/icon.png" alt="">Astute Chat</div>
+<div class="brand"><img src="images/icon.png" alt="">Astute Code</div>
 <span class="version">Version ${version}</span>
 ${contents}
 </nav>

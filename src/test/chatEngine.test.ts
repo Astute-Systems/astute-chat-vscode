@@ -445,3 +445,93 @@ test("reports context use to the panel only when it changes", async () => {
   }
   assert.deepEqual(seen, [20, 41]);
 });
+
+const checkedRequest = (url: string, events: EngineEvents, checkReply: (reply: string) => Promise<string | undefined>) => ({ ...retryRequest(url, events, noopTools), tools: undefined, retryWithoutTools: undefined, checkReply });
+
+test("a failed check is sent back once, and the retry replaces the reply", async (t) => {
+  const replies = ["bad draft", "good plan"];
+  const mock = await startMock((_req, res) => res.end(line({ message: { content: replies.shift() }, done: true, eval_count: 1 })));
+  t.after(() => mock.close());
+  let resets = 0;
+  const seen: string[] = [];
+  const result = await runChat(checkedRequest(mock.url, { ...recorder(), onContentReset: () => (resets += 1) }, async (reply) => {
+    seen.push(reply);
+    return reply === "bad draft" ? "Steps is missing." : undefined;
+  }));
+  assert.equal(result.content, "good plan");
+  assert.equal(resets, 1);
+  assert.deepEqual(seen, ["bad draft", "good plan"]);
+  assert.match(mock.requests.filter((request) => request.path === "/api/chat")[1].body.messages.at(-1).content, /Fix these problems[\s\S]*Steps is missing\./);
+});
+
+test("a reply that still fails is kept, with a warning, and isn't retried again", async (t) => {
+  let calls = 0;
+  const mock = await startMock((_req, res) => {
+    calls += 1;
+    res.end(line({ message: { content: `draft ${calls}` }, done: true, eval_count: 1 }));
+  });
+  t.after(() => mock.close());
+  const log = recorder();
+  const result = await runChat(checkedRequest(mock.url, log, async () => "Steps is missing."));
+  assert.equal(calls, 2);
+  assert.equal(result.content, "draft 2");
+  assert.match(log.notices.at(-1) ?? "", /Check this before using it: Steps is missing\./);
+});
+
+test("a plan with no research is retried even if it ends in a question, and the first draft goes", async (t) => {
+  let round = 0;
+  const mock = await startMock((_req, res) => {
+    round += 1;
+    const call = round === 2 ? [{ function: { name: "read_file", arguments: {} } }] : undefined;
+    res.end(line({ message: { content: round === 1 ? "## Steps\n1. Guess\n\n## Open questions\nWhich one?" : round === 3 ? "researched plan" : "", tool_calls: call }, done: true, eval_count: 1 }));
+  });
+  t.after(() => mock.close());
+  const result = await runChat({ ...retryRequest(mock.url, recorder(), noopTools), checkReply: async () => undefined });
+  assert.equal(round, 3);
+  assert.equal(result.content, "researched plan");
+});
+
+test("a plain question in a checked reply isn't sent back for research", async (t) => {
+  let round = 0;
+  const mock = await startMock((_req, res) => {
+    round += 1;
+    res.end(line({ message: { content: "Which database?" }, done: true, eval_count: 1 }));
+  });
+  t.after(() => mock.close());
+  await runChat({ ...retryRequest(mock.url, recorder(), noopTools), checkReply: async () => undefined });
+  assert.equal(round, 1);
+});
+
+test("without a check, a retry still adds to the reply", async (t) => {
+  let round = 0;
+  const mock = await startMock((_req, res) => {
+    round += 1;
+    const call = round === 2 ? [{ function: { name: "write_file", arguments: {} } }] : undefined;
+    res.end(line({ message: { content: round === 1 ? "Here is how." : round === 3 ? "Built." : "", tool_calls: call }, done: true, eval_count: 1 }));
+  });
+  t.after(() => mock.close());
+  const result = await runChat(retryRequest(mock.url, recorder(), noopTools));
+  assert.match(result.content, /Here is how\.[\s\S]*Built\./);
+});
+
+test("reports what really happened in a turn", async (t) => {
+  let round = 0;
+  const mock = await startMock((_req, res) => {
+    round += 1;
+    const call = [{ function: { name: "read_file", arguments: {} } }];
+    res.end(line({ message: { content: round === 3 ? "out of rounds" : "", tool_calls: round < 3 ? call : undefined }, done: true, eval_count: 1 }));
+  });
+  t.after(() => mock.close());
+  const result = await runChat({ ...retryRequest(mock.url, recorder(), noopTools), maxToolRounds: 2 });
+  assert.equal(result.usedTools, true);
+  assert.equal(result.hitToolLimit, true);
+  assert.equal(result.unresolvedFailure, false);
+});
+
+test("a turn that stayed inside its rounds didn't hit the limit", async (t) => {
+  const mock = await startMock((_req, res) => res.end(line({ message: { content: "Which file?" }, done: true, eval_count: 1 })));
+  t.after(() => mock.close());
+  const result = await runChat(retryRequest(mock.url, recorder(), noopTools));
+  assert.equal(result.usedTools, false);
+  assert.equal(result.hitToolLimit, false);
+});

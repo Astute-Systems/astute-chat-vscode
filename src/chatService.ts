@@ -18,6 +18,7 @@ import { autoThreadCount, countPhysicalCores } from "./threads";
 import type { TerminalLog } from "./terminalLog";
 import type { McpManager } from "./mcpManager";
 import { MAX_TOOLS } from "./mcpPool";
+import { planProblems } from "./planCheck";
 import { ConfirmChange, createToolRunner, ImageReader } from "./tools";
 
 const READ_IMAGE_PROMPT = "Describe this image in detail. Transcribe all visible text, code and error messages exactly, character for character.";
@@ -395,10 +396,10 @@ export class ChatService {
     }
     const mcpTools = useTools && mode.canChange && this.mcp ? await this.mcp.definitions() : undefined;
     for (const server of mcpTools?.failed ?? []) {
-      request.events.onNotice(`MCP server ${server} didn't start. Astute Chat: Show Logs has the details.`);
+      request.events.onNotice(`MCP server ${server} didn't start. Astute Code: Show Logs has the details.`);
     }
     if (mcpTools?.skipped.length) {
-      request.events.onNotice(`Only ${MAX_TOOLS} MCP tools can be offered to a model, so ${mcpTools.skipped.length} were left out. Astute Chat: Show Logs lists them.`);
+      request.events.onNotice(`Only ${MAX_TOOLS} MCP tools can be offered to a model, so ${mcpTools.skipped.length} were left out. Astute Code: Show Logs lists them.`);
     }
     if (mcpTools?.tools.length) {
       sections.push(MCP_RULE);
@@ -444,6 +445,7 @@ export class ChatService {
       maxToolRounds: mode.maxToolRounds,
       retryWithoutTools: mode.retryPrompt,
       fixFailures: mode.fixPrompt,
+      checkReply: mode.id === "plan" ? async (reply) => (await planProblems(reply, useTools ? projectRoot : undefined)).join("\n") || undefined : undefined,
       signal: request.signal,
       events: request.events,
     });

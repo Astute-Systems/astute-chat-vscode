@@ -114,7 +114,7 @@ export function notesSection(notes: string): string {
  * The user approved it, but only as a plan: approvals still apply to every change.
  */
 export function planSection(plan: string): string {
-  return `The user approved the plan between the approved-plan tags. Work through it in order. If a newer request differs from it, follow the request. It doesn't replace approval of any change.\n<approved-plan>\n${plan.replace(/<\/?approved-plan>/gi, "")}\n</approved-plan>`;
+  return `The user approved the plan between the approved-plan tags. You're given its steps one at a time, so do only the step you're asked for. If a newer request differs from it, follow the request. It doesn't replace approval of any change.\n<approved-plan>\n${plan.replace(/<\/?approved-plan>/gi, "")}\n</approved-plan>`;
 }
 
 /** Sent with the request, because a system prompt that changes each turn can't reuse Ollama's cached prompt. */

@@ -66,7 +66,7 @@ async function offerVectorFont(context: vscode.ExtensionContext): Promise<void> 
 
 function createStatusBar(monitor: ConnectionMonitor): vscode.StatusBarItem {
   const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  item.name = "Astute Chat";
+  item.name = "Astute Code";
   item.command = "astuteChat.openChat";
   const render = (state: ConnectionState): void => {
     const icon = state.status === "connected" ? "$(check)" : state.status === "offline" ? "$(warning)" : "$(sync~spin)";
@@ -143,7 +143,7 @@ async function selectModel(monitor: ConnectionMonitor, service: ChatService): Pr
 }
 
 export function activate(context: vscode.ExtensionContext): AstuteChatApi {
-  const log = vscode.window.createOutputChannel("Astute Chat", { log: true });
+  const log = vscode.window.createOutputChannel("Astute Code", { log: true });
   const monitor = new ConnectionMonitor(log);
   const terminal = new TerminalLog();
   const mcp = new McpManager(log);
@@ -166,7 +166,7 @@ export function activate(context: vscode.ExtensionContext): AstuteChatApi {
       }
     }).catch((error: unknown) => {
       log.error(`Couldn't change the Astute Vector theme: ${String(error)}`);
-      void vscode.window.showErrorMessage("Astute Chat couldn't change the Astute Vector theme. Astute Chat: Show Logs has the details.");
+      void vscode.window.showErrorMessage("Astute Code couldn't change the Astute Vector theme. Astute Code: Show Logs has the details.");
     });
   };
   applyVectorTheme();
@@ -215,7 +215,7 @@ export function activate(context: vscode.ExtensionContext): AstuteChatApi {
         await installVectorFont(context);
       } catch (error) {
         log.error(`Couldn't install the font: ${String(error)}`);
-        void vscode.window.showErrorMessage("Astute Chat couldn't install the font. Astute Chat: Show Logs has the details.");
+        void vscode.window.showErrorMessage("Astute Code couldn't install the font. Astute Code: Show Logs has the details.");
       }
     }),
     vscode.commands.registerCommand("astuteChat.reloadSkills", () => {

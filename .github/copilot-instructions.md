@@ -1,6 +1,6 @@
-# Astute Chat for VS Code
+# Astute Code for VS Code
 
-Astute Chat is an offline-first VS Code chat client for Ollama. Its main UI is a webview tab in the secondary side bar, next to Chat. Keep it working with no internet, no GitHub sign-in and no Copilot.
+Astute Code is an offline-first VS Code chat client for Ollama. Its main UI is a webview tab in the secondary side bar, next to Chat. Keep it working with no internet, no GitHub sign-in and no Copilot.
 
 ## Check the API before you rely on it
 
@@ -32,6 +32,7 @@ Do not use `enabledApiProposals`. Proposed APIs work only in Insiders and must n
 
 ## Rules that are easy to miss
 
+- The product is Astute Code, but the extension ID `astute-chat-ollama` and the `astuteChat.*` settings, commands, views and storage keys keep the old name on purpose. Changing them would lose users' settings and saved chats, and would start a new Marketplace listing.
 - Keep server settings at `machine` scope. Workspace-scoped settings would let a cloned repository redirect code and prompts to another server.
 - Use the `http` and `https` modules for Ollama calls, not `fetch`. Slow CPU models can exceed the `fetch` headers timeout.
 - Keep `@astute` as a thin wrapper around `src/chatService.ts`. Chat participants are deprecated, so put new features in the panel and the shared service.
@@ -57,6 +58,8 @@ Do not use `enabledApiProposals`. Proposed APIs work only in Insiders and must n
 - Keep chat summaries in the system prompt, which is never trimmed, and inside the size limit from `summaryTokens`, marked as data with `summarySection`. They can quote files and web pages.
 - `context.txt` must stay in extension storage, never the workspace: Ask and Plan must change nothing there, it could be committed, and a file from a cloned repository would reach the prompt. Only the extension writes it, so don't give models a tool for it. Model output must pass through `cleanSummary`, so it can't reach Notes or the activity record.
 - Plans are saved by the extension beside `context.txt`, one file per plan, and never by a model. The panel sends plan ids, so check them against the transcript with `planEntry` before they reach a path. Keep `MODES.plan` and its heading test in step.
+- `src/planCheck.ts` judges plans in code. Keep `PLAN_HEADINGS` in step with `MODES.plan`, and check paths with `workspacePath`, so a plan can't read outside the workspace or touch a secret file. A checked reply is used whole, so its retries must replace it, not add to it.
+- `runPlan` runs a plan one turn per step, and `stepProblem` decides from what happened whether a step finished. Don't take the model's word for it, and never mark a step done after a denial, a failure or a stop.
 - Only Agent gets the active plan in its system prompt, inside the limit from `planTokens`. Leave that plan out of the history too, or it's sent twice.
 - Decide on summaries in `prepareHistory`, once the model and full prompt size are known. The trigger must fire before `fitToContext` starts removing messages.
 - Facts that change every turn go with the request, not the system prompt, so Ollama can reuse its cached prompt.

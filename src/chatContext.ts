@@ -4,7 +4,9 @@ import { capText } from "./chatSummary";
 import type { ChangeReport } from "./messages";
 
 const FILE_NAME = "context.txt";
-const INTRO = ["# Chat context", "Astute Chat keeps this file up to date, and you can edit it. Text under Notes is never changed."];
+const INTRO = ["# Chat context", "Astute Code keeps this file up to date, and you can edit it. Text under Notes is never changed."];
+/** Files written before the rename to Astute Code still carry this line. */
+const OLD_INTRO_LINE = "Astute Chat keeps this file up to date, and you can edit it. Text under Notes is never changed.";
 const ACTIVITY_HEADING = "## Files and commands";
 const NOTES_HEADING = "## Notes";
 const MAX_ACTIVITY_LINES = 40;
@@ -44,7 +46,7 @@ export function parseContext(text: string): ChatContext {
       if (heading) {
         activity.push(heading);
       }
-    } else if (!INTRO.includes(lines[index])) {
+    } else if (!INTRO.includes(lines[index]) && lines[index] !== OLD_INTRO_LINE) {
       summary.push(lines[index]);
     }
   }

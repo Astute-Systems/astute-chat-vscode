@@ -593,6 +593,8 @@ function setHistoryOpen(open: boolean): void {
   historyButton.setAttribute("aria-expanded", String(open));
 }
 
+let planStepsOpen = false;
+
 function renderContext(state: ViewState): void {
   const items = [...(state.openFile ? [state.openFile] : []), ...state.pinned];
   contextRow.replaceChildren();
@@ -600,11 +602,24 @@ function renderContext(state: ViewState): void {
   if (state.activePlan) {
     const chip = create("div", "context-chip", contextRow);
     chip.title = "Agent keeps this plan in view. Remove it when the work is done.";
-    create("span", "", chip, `Plan: ${state.activePlan.title}`);
+    const { title, steps, done } = state.activePlan;
+    create("span", "", chip, `Plan ${done} of ${steps.length}: ${title}`);
+    if (!state.planRunning) {
+      const resume = create("button", "secondary compact", chip, "Continue");
+      resume.setAttribute("type", "button");
+      resume.addEventListener("click", () => vscode.postMessage({ type: "continuePlan" }));
+    }
     const remove = create("button", "context-remove", chip, "×");
     remove.setAttribute("type", "button");
     remove.setAttribute("aria-label", "Stop following the plan");
     remove.addEventListener("click", () => vscode.postMessage({ type: "clearPlan" }));
+    const list = document.createElement("details");
+    list.className = "plan-steps";
+    list.open = planStepsOpen;
+    list.appendChild(Object.assign(document.createElement("summary"), { textContent: "Steps" }));
+    list.addEventListener("toggle", () => (planStepsOpen = list.open));
+    renderTasks(list, steps.map((step, index) => ({ title: step.split("\n")[0], done: index < done })));
+    contextRow.appendChild(list);
   }
   for (const item of items) {
     const chip = create("div", "context-chip", contextRow);
@@ -767,6 +782,12 @@ window.addEventListener("message", (event: MessageEvent<ToWebview>) => {
       break;
     case "contextUse":
       showContextUse(message.percent);
+      break;
+    case "resetContent":
+      if (active) {
+        active.entry.content = "";
+        queueRender();
+      }
       break;
     case "tool": {
       if (active) {

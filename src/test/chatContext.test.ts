@@ -16,6 +16,11 @@ test("a context file survives being written and read back", () => {
   assert.deepEqual(parseContext(renderContext(context)), context);
 });
 
+test("a file from before the rename doesn't leak its intro into the summary", () => {
+  const old = "# Chat context\nAstute Chat keeps this file up to date, and you can edit it. Text under Notes is never changed.\n\n## Goal\n- ship it\n";
+  assert.equal(parseContext(old).summary, "## Goal\n- ship it");
+});
+
 test("reads a file a person rearranged", () => {
   assert.deepEqual(parseContext("just some text"), { summary: "just some text", activity: [], notes: "" });
   assert.deepEqual(parseContext("## Notes\nmine\n## Goal\nalso mine"), { summary: "", activity: [], notes: "mine\n## Goal\nalso mine" });

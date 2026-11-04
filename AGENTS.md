@@ -1,6 +1,6 @@
-# Astute Chat
+# Astute Code
 
-Astute Chat is a VS Code extension: an offline-first chat client and coding agent for Ollama. Its main UI is a webview tab in the secondary side bar. It must work with no internet, no GitHub sign-in and no Copilot.
+Astute Code is a VS Code extension: an offline-first chat client and coding agent for Ollama. Its main UI is a webview tab in the secondary side bar. It must work with no internet, no GitHub sign-in and no Copilot.
 
 `.github/copilot-instructions.md` holds the full rules. Read it before changing security, approvals, tools or API calls.
 

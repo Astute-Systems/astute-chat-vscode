@@ -30,9 +30,9 @@ Module._load = load;
 const log = { info: () => undefined, warn: () => undefined, error: () => undefined };
 const events = { onStatus: () => undefined, onThinking: () => undefined, onContent: () => undefined, onTool: () => undefined, onNotice: () => undefined };
 
-async function withServer(check: (service: InstanceType<typeof ChatService>, sent: () => any[]) => Promise<void>): Promise<void> {
+async function withServer(check: (service: InstanceType<typeof ChatService>, sent: () => any[]) => Promise<void>, replies: string[] = []): Promise<void> {
   const mock = await startMock((_request, response) => {
-    response.end(`${JSON.stringify({ message: { content: "answer" }, done: true, prompt_eval_count: 900, eval_count: 5, done_reason: "stop" })}\n`);
+    response.end(`${JSON.stringify({ message: { content: replies.shift() ?? "answer" }, done: true, prompt_eval_count: 900, eval_count: 5, done_reason: "stop" })}\n`);
   });
   const url = new URL(mock.url);
   settings.set("server.host", url.hostname);
@@ -104,4 +104,21 @@ test("plans with less room once a model turns out to use more tokens", async () 
     assert.equal(contextLimit, 4096, "num_ctx doesn't change");
     assert.ok(usableLimit < 4096);
   });
+});
+
+test("Plan sends a reply with no plan shape back to the model", async () => {
+  const good = "## Goal\nx\n\n## Files\n- a.ts\n\n## Steps\n1. y\n\n## Verify\nz\n\n## Risks\nNone\n\n## Open questions\nNone";
+  await withServer(async (service, sent) => {
+    const result = await service.runTurn({ prompt: "plan it", mode: "plan", events });
+    assert.equal(result.content, good);
+    assert.equal(sent().length, 2);
+    assert.match(sent()[1].messages.at(-1).content, /headings are missing/);
+  }, ["Just edit it.", good]);
+});
+
+test("Ask replies aren't checked as plans", async () => {
+  await withServer(async (service, sent) => {
+    await service.runTurn({ prompt: "what is this", mode: "ask", events });
+    assert.equal(sent().length, 1);
+  }, ["It's a chat client."]);
 });

@@ -1,4 +1,4 @@
-# Publishing Astute Chat
+# Publishing Astute Code
 
 This guide is for Astute Systems staff who release the extension to the VS Code Marketplace.
 

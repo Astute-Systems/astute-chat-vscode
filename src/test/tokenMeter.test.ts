@@ -65,6 +65,20 @@ test("reports the share of the context in use as a reply grows", () => {
   assert.equal(meter.contextPercent(), 60);
 });
 
+test("counts each tool round's output once in the context share", () => {
+  const meter = new TokenMeter(1000);
+  meter.beginRound(100, true);
+  meter.endRound({ promptTokens: 100, outputTokens: 200 });
+  assert.equal(meter.contextPercent(), 30);
+  // The second prompt already holds the first reply.
+  meter.beginRound(300, true);
+  meter.chunk("responding");
+  assert.equal(meter.contextPercent(), 30);
+  meter.endRound({ promptTokens: 300, outputTokens: 100 });
+  assert.equal(meter.contextPercent(), 40);
+  assert.equal(meter.outputTokens, 300);
+});
+
 test("never reports more than a full window, and nothing without a limit", () => {
   const meter = new TokenMeter(100);
   meter.beginRound(500, true);

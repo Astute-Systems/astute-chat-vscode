@@ -396,7 +396,7 @@ export async function run(): Promise<void> {
   await panel.receive({ type: "runInTerminal", text: "echo new > terminal-new.txt" });
   await waitFor(() => fs.existsSync(path.join(root, "terminal-new.txt")), "command ran in a new terminal");
   assert.equal(vscode.window.terminals.length, before + 1);
-  assert.equal(vscode.window.activeTerminal?.name, "Astute Chat");
+  assert.equal(vscode.window.activeTerminal?.name, "Astute Code");
   pass("Run opened a terminal in the workspace when none was open");
 
   const mine = vscode.window.createTerminal("My Terminal");

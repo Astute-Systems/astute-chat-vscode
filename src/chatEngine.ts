@@ -34,6 +34,8 @@ export interface EngineEvents {
   onNotice(text: string): void;
   /** Share of the context window in use, whenever it changes. */
   onContext?(percent: number): void;
+  /** The reply so far has been discarded, because a retry replaces it. */
+  onContentReset?(): void;
 }
 
 export interface EngineRequest {
@@ -54,6 +56,8 @@ export interface EngineRequest {
   retryWithoutTools?: string;
   /** When set, a reply that ends on a failed command is sent back to fix it. */
   fixFailures?: string;
+  /** Checks a finished reply. What it returns is sent back once, and that retry replaces the reply. */
+  checkReply?: (reply: string) => Promise<string | undefined>;
   signal?: AbortSignal;
   events: EngineEvents;
 }
@@ -65,6 +69,12 @@ export interface EngineResult {
   cancelled: boolean;
   /** Tokens Ollama counted for each estimated one, when a prompt was large enough to measure. */
   tokenRatio?: number;
+  /** Whether any tool ran, which says more than what the reply claims. */
+  usedTools?: boolean;
+  /** The last command or edit was still failing when the reply ended. */
+  unresolvedFailure?: boolean;
+  /** The reply ended because tool rounds ran out, so the work may be unfinished. */
+  hitToolLimit?: boolean;
 }
 
 export const CHARS_PER_TOKEN = 4;
@@ -217,6 +227,8 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
   let failedEdit = false;
   let pushedBack = false;
   let fixAttempts = 0;
+  let checked = false;
+  let toolsOffered = true;
   let tokenRatio: number | undefined;
   const fitLimit = Math.floor(request.contextLimit / (request.tokenScale ?? 1));
 
@@ -230,6 +242,16 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
     }
   };
   const ticker = setInterval(report, STATUS_INTERVAL_MS);
+  // A checked reply is used as a whole, so a retry mustn't leave the failed draft in it.
+  const startRetry = (): void => {
+    if (request.checkReply) {
+      content = "";
+      events.onContentReset?.();
+    } else if (content) {
+      content += "\n\n";
+      events.onContent("\n\n");
+    }
+  };
   events.onStatus(meter.status());
 
   try {
@@ -245,6 +267,7 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
       report();
 
       const offerTools = request.tools && !askedForAnswer && round < (request.maxToolRounds ?? DEFAULT_TOOL_ROUNDS);
+      toolsOffered = Boolean(offerTools);
       const outcome = await client.chat(
         {
           model,
@@ -290,16 +313,14 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
       }
 
       // A question is a fair reply when a request is unclear, so it isn't retried.
-      const askedQuestion = outcome.content.trim().endsWith("?");
+      // A plan can end in one too, because Open questions is its last section.
+      const askedQuestion = outcome.content.trim().endsWith("?") && !(request.checkReply && /^#{1,6}\s/m.test(outcome.content));
       if (outcome.toolCalls.length === 0 && request.tools && request.retryWithoutTools && !usedTools && !askedQuestion) {
         if (!retried) {
           retried = true;
           events.onNotice("The model replied without acting, so it was asked again.");
           transcript.push({ role: "assistant", content: outcome.content }, { role: "user", content: request.retryWithoutTools });
-          if (content) {
-            content += "\n\n";
-            events.onContent("\n\n");
-          }
+          startRetry();
           continue;
         }
         events.onNotice(`${model} didn't use any tools, so nothing in the workspace changed. Try again, or choose another model.`);
@@ -317,6 +338,20 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
           continue;
         }
         events.onNotice(`The last ${failedEdit ? "edit" : "command"} still failed when this reply ended. It printed: ${failedOutput}`);
+      }
+
+      if (outcome.toolCalls.length === 0 && request.checkReply && content.trim()) {
+        const problem = await request.checkReply(content);
+        if (problem && !checked) {
+          checked = true;
+          events.onNotice(`The reply needed fixing, so it was sent back: ${problem}`);
+          transcript.push({ role: "assistant", content: outcome.content }, { role: "user", content: `Fix these problems, and write the whole thing again:\n${problem}` });
+          startRetry();
+          continue;
+        }
+        if (problem) {
+          events.onNotice(`Check this before using it: ${problem}`);
+        }
       }
 
       // Thinking can use up the whole reply, which leaves the user with a blank answer.
@@ -366,7 +401,7 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
     if (lastUsage.doneReason === "length") {
       events.onNotice("The reply was cut off by the context window. Increase astuteChat.numCtx to allow longer replies.");
     }
-    return { content, thinking, summary: meter.summary(), cancelled: false, tokenRatio };
+    return { content, thinking, summary: meter.summary(), cancelled: false, tokenRatio, usedTools, unresolvedFailure: failedOutput !== undefined, hitToolLimit: Boolean(request.tools) && !toolsOffered && !askedForAnswer };
   } catch (error) {
     if (error instanceof OllamaError && error.kind === "cancelled") {
       return { content, thinking, summary: `Stopped · ${meter.summary()}`, cancelled: true };

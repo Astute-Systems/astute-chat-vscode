@@ -42,6 +42,8 @@ export interface TranscriptEntry {
   undoId?: number;
   /** Names the file holding this plan. Only finished Plan replies have one. */
   planId?: string;
+  /** The planned files as they were when the plan was written, or null if they didn't exist. */
+  planHashes?: Record<string, string | null>;
   review?: ReviewSummary;
 }
 
@@ -92,11 +94,19 @@ export interface ViewState {
   contextUse?: number;
   /** The plan Agent is following. */
   activePlan?: ActivePlan;
+  /** Steps are running now, so the plan can't be continued yet. */
+  planRunning: boolean;
 }
 
 export interface ActivePlan {
   id: string;
   title: string;
+  /** What to do, in order. */
+  steps: string[];
+  /** How many steps have finished. Steps run in order, so a count is enough. */
+  done: number;
+  /** The step last started, so a step that's tried again can be told so. */
+  started?: number;
 }
 
 export type ToWebview =
@@ -105,6 +115,7 @@ export type ToWebview =
   | { type: "delta"; kind: "thinking" | "content"; text: string }
   | { type: "status"; text: string }
   | { type: "contextUse"; percent: number }
+  | { type: "resetContent" }
   | { type: "tool"; text: string }
   | { type: "notice"; text: string }
   | { type: "approval"; prompt: ApprovalPrompt }
@@ -123,6 +134,7 @@ export type FromWebview =
   | { type: "implementPlan"; planId: string }
   | { type: "openPlan"; planId: string }
   | { type: "clearPlan" }
+  | { type: "continuePlan" }
   | { type: "newChat" }
   | { type: "openContext" }
   | { type: "toggleReview" }

@@ -31,6 +31,7 @@ export class TokenMeter {
   private readonly startedAt: number;
   private exactOutput = 0;
   private roundChunks = 0;
+  private finishedRoundOutput = 0;
   private promptTokens = 0;
   private promptEstimate = 0;
   private roundStartedAt = 0;
@@ -48,6 +49,7 @@ export class TokenMeter {
     this.phase = modelLoaded ? "processing" : "loading";
     this.promptEstimate = promptEstimate;
     this.roundChunks = 0;
+    this.finishedRoundOutput = 0;
     this.roundStartedAt = 0;
   }
 
@@ -65,7 +67,8 @@ export class TokenMeter {
   }
 
   endRound(usage: ChatUsage): void {
-    this.exactOutput += usage.outputTokens ?? this.roundChunks;
+    this.finishedRoundOutput = usage.outputTokens ?? this.roundChunks;
+    this.exactOutput += this.finishedRoundOutput;
     this.roundChunks = 0;
     this.promptTokens = usage.promptTokens ?? this.promptEstimate;
     if (usage.evalDurationNs && usage.outputTokens) {
@@ -87,12 +90,15 @@ export class TokenMeter {
     return this.evalNs ? (this.evalTokens / this.evalNs) * 1e9 : 0;
   }
 
-  /** Share of the context window in use. Cached prompts report fewer tokens than they occupy, so this uses the larger figure. */
+  /**
+   * Share of the context window in use. Cached prompts report fewer tokens than they occupy, so this uses the larger figure.
+   * Only the latest round's output counts, because each prompt already holds the replies before it.
+   */
   contextPercent(): number | undefined {
     if (!this.contextLimit) {
       return undefined;
     }
-    const used = Math.max(this.promptTokens, this.promptEstimate) + this.outputTokens;
+    const used = Math.max(this.promptTokens, this.promptEstimate) + this.finishedRoundOutput + this.roundChunks;
     return Math.min(100, Math.round((used / this.contextLimit) * 100));
   }
 

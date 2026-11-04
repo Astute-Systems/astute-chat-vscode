@@ -12,6 +12,7 @@ import { IMAGE_FILE } from "./contentGuard";
 import { openWorkspaceFile, readDroppedImages, resolveFiles, workspacePath } from "./fileResolver";
 import { buildRequestContext, OpenFile } from "./contextFiles";
 import { rankFiles, withFolders } from "./filePicker";
+import { changedPlanFiles, hashPlanFiles, isPlan, openQuestions, planSteps, stepProblem } from "./planCheck";
 import { ActivePlan, ApprovalDecision, ApprovalPrompt, AttachedImage, ChatListing, FromWebview, ToWebview, TranscriptEntry, ViewState } from "./messages";
 import { ApprovalLevel, ChatMode, isApprovalLevel, isChatMode, MODES } from "./modes";
 import { ChatMessage, OllamaError } from "./ollamaClient";
@@ -28,7 +29,7 @@ const PROPOSED_SCHEME = "astute-proposed";
 const SUMMARY_KEY = "astuteChat.summary";
 const CHAT_ID_KEY = "astuteChat.chatId";
 const ACTIVE_PLAN_KEY = "astuteChat.activePlan";
-const IMPLEMENT_PROMPT = "Carry out the approved plan in your system prompt. Start with step 1 and work through the steps in order, checking each one as the plan says.";
+const MAX_STEP_LABEL_CHARS = 100;
 const REVIEW_MODE_KEY = "astuteChat.reviewMode";
 const OPEN_REVIEW_KEY = "astuteChat.openReview";
 const CHATS_KEY = "astuteChat.chats";
@@ -132,6 +133,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private updatingContext = false;
   private contextUse: number | undefined;
   private activePlan: ActivePlan | undefined;
+  private planRunning = false;
+  /** Why the turn that just ended can't count as a finished step. */
+  private turnProblem: string | undefined;
   private fileList: { items: string[]; at: number } | undefined;
   private nextApprovalId = 1;
   private active: TranscriptEntry | undefined;
@@ -191,7 +195,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="${style}">
-<title>Astute Chat</title>
+<title>Astute Code</title>
 </head>
 <body>
 <header>
@@ -268,6 +272,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       status: this.status,
       contextUse: this.contextUse,
       activePlan: this.activePlan,
+      planRunning: this.planRunning,
     };
   }
 
@@ -375,8 +380,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         break;
       case "clearPlan":
         this.activePlan = undefined;
+        this.planRunning = false;
         await this.persist();
         this.postState();
+        break;
+      case "continuePlan":
+        await this.runPlan();
         break;
       case "setServer":
         await vscode.commands.executeCommand("astuteChat.setServerAddress");
@@ -579,7 +588,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   /** Uses the open terminal, or opens one in the workspace if there is none. */
   private runInTerminal(text: string): void {
-    const terminal = vscode.window.activeTerminal ?? vscode.window.createTerminal({ name: "Astute Chat", cwd: vscode.workspace.workspaceFolders?.[0]?.uri });
+    const terminal = vscode.window.activeTerminal ?? vscode.window.createTerminal({ name: "Astute Code", cwd: vscode.workspace.workspaceFolders?.[0]?.uri });
     terminal.show(true);
     terminal.sendText(text, true);
     this.log.info(`Sent to terminal "${terminal.name}": ${text}`);
@@ -691,6 +700,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   async clear(): Promise<void> {
     // A running reply joins the transcript when it ends, so it must end before saving.
+    this.planRunning = false;
     this.abort?.abort();
     await this.turn;
     this.saveCurrentChat();
@@ -787,20 +797,107 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async savePlan(entry: TranscriptEntry): Promise<void> {
+    if (!isPlan(entry.content)) {
+      return;
+    }
     entry.planId = crypto.randomUUID();
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    entry.planHashes = root ? await hashPlanFiles(entry.content, root) : undefined;
     await this.contextFiles.writePlan(this.chatId, entry.planId, entry.content).catch((error: unknown) => this.log.warn(`Could not save the plan: ${String(error)}`));
+    if (openQuestions(entry.content).length) {
+      const text = "This plan has open questions. Answer them here for a new plan, or edit this one and set Open questions to None.";
+      entry.notices?.push(text);
+      this.post({ type: "notice", text });
+    }
+  }
+
+  /** What the user should know before a plan runs. Read at the last moment, so edits to the plan count. */
+  private async planWarnings(plan: string, entry: TranscriptEntry): Promise<string[]> {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const changed = root && entry.planHashes ? await changedPlanFiles(entry.planHashes, root) : [];
+    const questions = openQuestions(plan);
+    return [
+      ...(questions.length ? [`It still has open questions: ${questions.join(" ")}`] : []),
+      ...(changed.length ? [`These files have changed since it was written: ${changed.join(", ")}.`] : []),
+    ];
   }
 
   /** Takes an id from the panel, so it only uses ids this chat really has. */
   private async implementPlan(planId: string): Promise<void> {
-    const plan = this.busy || !this.planEntry(planId) ? undefined : await this.planText(planId);
-    if (!plan?.trim()) {
+    const entry = this.planEntry(planId);
+    const plan = this.busy || !entry ? undefined : await this.planText(planId);
+    if (!entry || !plan?.trim()) {
       return;
     }
-    this.activePlan = { id: planId, title: planTitle(plan) };
+    const warnings = await this.planWarnings(plan, entry);
+    if (warnings.length) {
+      const proceed = "Implement Anyway";
+      const choice = await vscode.window.showWarningMessage("This plan may not be ready.", { modal: true, detail: warnings.join("\n\n") }, proceed);
+      if (choice !== proceed || this.busy) {
+        return;
+      }
+    }
+    // Selecting a plan that's part done picks it up, because repeating finished steps could undo them.
+    const resumed = this.activePlan?.id === planId ? this.activePlan : undefined;
+    this.activePlan = { id: planId, title: planTitle(plan), steps: planSteps(plan), done: resumed?.done ?? 0, started: resumed?.started };
     await this.persist();
+    await this.runPlan();
+  }
+
+  /**
+   * Runs the active plan one turn per step. The extension does this rather than the
+   * model because models report success anyway, and each step gets its own tool
+   * rounds and can summarise what came before, which suits a small context window.
+   */
+  private async runPlan(): Promise<void> {
+    if (this.busy || !this.activePlan) {
+      return;
+    }
+    const chat = this.chatKey;
+    this.planRunning = true;
     await this.setMode("agent");
-    await this.startTurn(IMPLEMENT_PROMPT, "Implement the plan.", undefined);
+    try {
+      while (this.planRunning && this.activePlan && this.chatKey === chat) {
+        const text = await this.planText(this.activePlan.id);
+        if (!text?.trim()) {
+          this.activePlan = undefined;
+          await this.info("The plan has gone, so it was stopped.");
+          return;
+        }
+        const steps = planSteps(text);
+        const { done, started }: ActivePlan = this.activePlan;
+        if (done >= steps.length) {
+          this.activePlan = undefined;
+          await this.info(`Plan finished: all ${steps.length} step${steps.length === 1 ? "" : "s"} ran, and no failures were left.`);
+          return;
+        }
+        if (this.mode !== "agent") {
+          await this.info(`Paused at step ${done + 1} of ${steps.length}, because the mode changed. Select Continue to carry on.`);
+          return;
+        }
+        this.activePlan = { ...this.activePlan, steps, started: done };
+        this.turnProblem = undefined;
+        this.postState();
+        const again = started === done ? " This step wasn't finished last time, so check what's already done first." : "";
+        await this.startTurn(
+          `Do step ${done + 1} of ${steps.length} of the approved plan, and only this step:\n${steps[done]}\n\nCheck it worked as the plan says, then say what you did.${again}`,
+          `Step ${done + 1} of ${steps.length}: ${steps[done].split("\n")[0].slice(0, MAX_STEP_LABEL_CHARS)}`,
+          undefined,
+        );
+        if (this.chatKey !== chat || !this.activePlan) {
+          return;
+        }
+        if (this.turnProblem) {
+          await this.info(`Paused at step ${done + 1} of ${steps.length}. ${this.turnProblem} Answer in the chat if it needs you, then select Continue.`);
+          return;
+        }
+        this.activePlan = { ...this.activePlan, done: done + 1 };
+        await this.persist();
+      }
+    } finally {
+      this.planRunning = false;
+      this.postState();
+    }
   }
 
   async openPlan(planId: string): Promise<void> {
@@ -815,12 +912,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       await vscode.window.showTextDocument(vscode.Uri.file(this.contextFiles.planFile(this.chatId, planId)));
     } catch (error) {
       this.log.warn(`Could not open the plan: ${String(error)}`);
-      void vscode.window.showErrorMessage("Could not open the plan. Astute Chat: Show Logs has the details.");
+      void vscode.window.showErrorMessage("Could not open the plan. Astute Code: Show Logs has the details.");
     }
   }
 
   private get busy(): boolean {
-    return !!this.active || this.updatingContext;
+    return !!this.active || this.updatingContext || this.planRunning;
   }
 
   /** Facts about a reply are worth keeping, but never worth stopping the chat for. */
@@ -918,7 +1015,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       await vscode.window.showTextDocument(vscode.Uri.file(this.contextFiles.file(this.chatId)));
     } catch (error) {
       this.log.warn(`Could not open the chat context file: ${String(error)}`);
-      void vscode.window.showErrorMessage("Could not open the chat context file. Astute Chat: Show Logs has the details.");
+      void vscode.window.showErrorMessage("Could not open the chat context file. Astute Code: Show Logs has the details.");
     }
   }
 
@@ -943,7 +1040,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
         const target = await this.service.summaryTarget(this.mode);
         const updated = await this.summariseMessages(entries, messagesBeforeRecent(entries.map((entry) => entry.message)), context.summary, target, abort.signal);
-        return updated ? "Updated the chat context." : abort.signal.aborted ? undefined : "Could not update the chat context. Astute Chat: Show Logs has the details.";
+        return updated ? "Updated the chat context." : abort.signal.aborted ? undefined : "Could not update the chat context. Astute Code: Show Logs has the details.";
       })
       .then(
         (message) => message,
@@ -985,6 +1082,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.post({ type: "begin", user });
     this.chatsChanged.fire();
     let allowEditsThisTurn = false;
+    let denied = false;
     const journal = new ChangeJournal();
     const review = this.reviewMode && MODES[mode].canChange ? await this.beginReview(prompt, active) : undefined;
     // The new message is already in the transcript, so history stops just before it.
@@ -1023,12 +1121,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           }
           const decision = await this.requestApproval(request, result.reason, abort.signal);
           allowEditsThisTurn = allowEditsThisTurn || decision === "allowEditsThisTurn";
+          denied = denied || decision === "deny";
           return decision !== "deny";
         },
         events: {
           onStatus: (text) => {
             this.status = this.pending ? "Waiting for your approval…" : text;
             this.post({ type: "status", text: this.status });
+          },
+          onContentReset: () => {
+            active.content = "";
+            this.post({ type: "resetContent" });
           },
           onContext: (percent) => {
             this.contextUse = percent;
@@ -1058,10 +1161,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       if (mode === "plan" && !result.cancelled && active.content.trim()) {
         await this.savePlan(active);
       }
+      this.turnProblem = stepProblem({ ...result, denied, reply: active.content });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Something went wrong.";
       this.log.error(`Chat failed: ${error instanceof OllamaError ? error.kind : "unknown"}: ${message}`);
       active.error = true;
+      this.turnProblem = stepProblem({ failure: message, reply: "" });
       active.content = active.content ? `${active.content}\n\n${message}` : message;
       if (error instanceof OllamaError && error.kind === "connection") {
         void this.monitor.refresh();

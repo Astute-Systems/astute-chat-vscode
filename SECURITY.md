@@ -1,6 +1,6 @@
 # Security
 
-Astute Chat runs model output as tool calls on your machine, so we treat security problems seriously.
+Astute Code runs model output as tool calls on your machine, so we treat security problems seriously.
 
 ## Report a problem
 
@@ -8,7 +8,7 @@ Please don't open a public issue. Contact [Astute Systems](https://astutesys.com
 
 - what you found, and what an attacker could do with it
 - the steps to reproduce it
-- your Astute Chat and VS Code versions
+- your Astute Code and VS Code versions
 
 ## What counts
 

@@ -2,8 +2,13 @@
 
 ## Unreleased
 
+- Astute Chat is now Astute Code, with a new logo. Your settings, saved chats and installed extension carry over unchanged
+- The context figure no longer climbs to 100% during long Agent runs by counting earlier replies twice
 - Plans now follow a fixed template and are saved as files, with a new **Edit plan** button
+- Plans are checked in code, and sent back once if they skipped the research, lack a section, or name files wrongly
+- Plan can ask up to three questions, and Implement warns about open questions and files that changed since the plan was written
 - Agent keeps the plan you approved in view while it works, so a long chat can't summarise it away
+- Agent now runs a plan one step at a time, and pauses with **Continue** if a step fails, is denied, runs out of tool rounds or ends in a question
 - **Implement in Agent mode** now carries out the plan you selected, not the newest one
 
 ## 0.17.0

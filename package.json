@@ -1,12 +1,12 @@
 {
   "name": "astute-chat-ollama",
-  "displayName": "Astute Chat (Ollama)",
+  "displayName": "Astute Code (Ollama)",
   "description": "Private, offline-first AI chat and agent for VS Code, powered by your own Ollama server.",
   "version": "0.17.0",
   "publisher": "AstuteSystems",
   "preview": true,
   "pricing": "Free",
-  "icon": "images/astute-chat/Astute_Chat_Icon_Extension.png",
+  "icon": "images/astute-code/Astute_Code_Icon_Extension.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/Astute-Systems/astute-chat-vscode.git"
@@ -57,7 +57,7 @@
       }
     ],
     "configuration": {
-      "title": "Astute Chat",
+      "title": "Astute Code",
       "properties": {
         "astuteChat.server.host": {
           "type": "string",
@@ -150,7 +150,7 @@
           "type": "boolean",
           "default": false,
           "scope": "application",
-          "markdownDescription": "Apply the Astute Vector look to all of VS Code: the colour theme, Astute Vector Mono at size 13 in the terminal, and Courier Prime in the editor. Turning this off restores your previous theme and fonts. Fonts must be installed on your computer. Run **Astute Chat: Install Astute Vector Mono Font** for the terminal font."
+          "markdownDescription": "Apply the Astute Vector look to all of VS Code: the colour theme, Astute Vector Mono at size 13 in the terminal, and Courier Prime in the editor. Turning this off restores your previous theme and fonts. Fonts must be installed on your computer. Run **Astute Code: Install Astute Vector Mono Font** for the terminal font."
         },
         "astuteChat.web.enabled": {
           "type": "boolean",
@@ -226,77 +226,77 @@
       {
         "command": "astuteChat.installVectorFont",
         "title": "Install Astute Vector Mono Font",
-        "category": "Astute Chat"
+        "category": "Astute Code"
       },
       {
         "command": "astuteChat.openChat",
         "title": "Open Chat",
-        "category": "Astute Chat"
+        "category": "Astute Code"
       },
       {
         "command": "astuteChat.newChat",
         "title": "New Chat",
-        "category": "Astute Chat",
+        "category": "Astute Code",
         "icon": "$(add)"
       },
       {
         "command": "astuteChat.updateChatContext",
         "title": "Update Chat Context",
-        "category": "Astute Chat"
+        "category": "Astute Code"
       },
       {
         "command": "astuteChat.openChatContext",
         "title": "Open Chat Context",
-        "category": "Astute Chat"
+        "category": "Astute Code"
       },
       {
         "command": "astuteChat.openSavedChat",
         "title": "Open Saved Chat",
-        "category": "Astute Chat"
+        "category": "Astute Code"
       },
       {
         "command": "astuteChat.deleteSavedChat",
         "title": "Delete Chat",
-        "category": "Astute Chat",
+        "category": "Astute Code",
         "icon": "$(trash)"
       },
       {
         "command": "astuteChat.addToChat",
-        "title": "Add to Astute Chat",
-        "category": "Astute Chat"
+        "title": "Add to Astute Code",
+        "category": "Astute Code"
       },
       {
         "command": "astuteChat.setServerAddress",
         "title": "Set Server Address",
-        "category": "Astute Chat",
+        "category": "Astute Code",
         "icon": "$(server)"
       },
       {
         "command": "astuteChat.selectModel",
         "title": "Select Model",
-        "category": "Astute Chat"
+        "category": "Astute Code"
       },
       {
         "command": "astuteChat.checkConnection",
         "title": "Check Ollama Connection",
-        "category": "Astute Chat"
+        "category": "Astute Code"
       },
       {
         "command": "astuteChat.reloadSkills",
         "title": "Reload Skills",
-        "category": "Astute Chat"
+        "category": "Astute Code"
       },
       {
         "command": "astuteChat.showLogs",
         "title": "Show Logs",
-        "category": "Astute Chat"
+        "category": "Astute Code"
       }
     ],
     "chatParticipants": [
       {
         "id": "astute",
         "name": "astute",
-        "fullName": "Astute Chat",
+        "fullName": "Astute Code",
         "description": "Ask your Ollama model about this workspace",
         "isSticky": true,
         "commands": [
@@ -347,7 +347,7 @@
       "secondarySidebar": [
         {
           "id": "astuteChat",
-          "title": "Astute",
+          "title": "Astute Code",
           "icon": "icons/astute-tab.svg"
         }
       ]
@@ -357,13 +357,13 @@
         {
           "type": "webview",
           "id": "astuteChat.chatView",
-          "name": "Astute",
+          "name": "Astute Code",
           "icon": "icons/astute-tab.svg"
         },
         {
           "id": "astuteChat.chatsView",
           "name": "Chats",
-          "contextualTitle": "Astute",
+          "contextualTitle": "Astute Code",
           "icon": "icons/astute-tab.svg",
           "visibility": "collapsed"
         }

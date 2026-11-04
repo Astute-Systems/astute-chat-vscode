@@ -176,7 +176,7 @@ export class McpConnection {
   async connect(): Promise<void> {
     const result = (await this.request(
       "initialize",
-      { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "astute-chat", version: "1.0.0" } },
+      { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "astute-code", version: "1.0.0" } },
       CONNECT_TIMEOUT_MS,
     )) as { protocolVersion?: string };
     if (!SUPPORTED_VERSIONS.has(result.protocolVersion ?? "")) {
