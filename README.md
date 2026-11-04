@@ -213,11 +213,13 @@ Two things can't match the chat tab, because VS Code has no setting for them. Th
 | `/help` | Lists commands and skills |
 | `/refresh` | Reloads skills |
 | `/clear` | Starts a new chat |
-| `/<skill-name>` | Uses a specific skill |
+| `/<skill-name>` | Forces that skill for this message |
 
 ## Skills
 
 Add a markdown file under `.astute/skills`. Skills match your question on their name, title, keywords and description.
+
+To force a skill, start your message with its name, such as `/code-review the parser`. It applies to that message, and the chat confirms it was read. Add a mode first to use both, such as `/agent /code-review the parser`. If no skill has that name, the chat says so and nothing is sent.
 
 ```markdown
 ---

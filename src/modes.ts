@@ -7,6 +7,11 @@ export const WEB_RULE = "You can use the internet with web_search and web_fetch.
 /** Agent's request reminder sends every request to the workspace, so general questions got a file listing and a question back. */
 export const WEB_REMINDER = "\n\nIf this asks for information or research rather than work in this workspace, call web_search now instead of looking at the workspace.";
 
+/** Models treated a skill as a tool, and called its name, so this says what it is. */
+export function skillReminder(title: string): string {
+  return `\n\nThe user chose the ${title} skill for this request. Its instructions are in your system prompt. Follow all of them. A skill isn't a tool, so don't call it.`;
+}
+
 export type ChatMode = "ask" | "plan" | "agent";
 
 export interface ModeDefinition {

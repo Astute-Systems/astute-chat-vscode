@@ -634,7 +634,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    const command = parseSlash(trimmed, this.service.skills());
+    const skills = this.service.commandSkills();
+    let shown = trimmed;
+    let command = parseSlash(shown, skills);
+    while (command.kind === "mode") {
+      await this.setMode(command.mode);
+      if (!command.prompt) {
+        return;
+      }
+      shown = command.prompt;
+      command = parseSlash(shown, skills);
+    }
     if (command.kind === "help") {
       await this.info(this.service.helpText());
       return;
@@ -648,19 +658,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       await this.clear();
       return;
     }
-
-    if (command.kind === "mode") {
-      await this.setMode(command.mode);
-      if (!command.prompt) {
-        return;
-      }
-      await this.runTurn(command.prompt, command.prompt, undefined, images);
+    if (command.kind === "unknown") {
+      await this.info(this.service.unknownCommandText(command.name));
       return;
     }
 
     const skill: Skill | undefined = command.kind === "skill" ? command.skill : undefined;
-    const prompt = command.kind === "skill" ? command.prompt || `Apply the ${command.skill.title} skill.` : trimmed;
-    await this.runTurn(prompt, trimmed, skill, images);
+    const prompt = command.kind === "skill" ? command.prompt || `Apply the ${command.skill.title} skill.` : shown;
+    await this.runTurn(prompt, shown, skill, images);
   }
 
   private historyBetween(start: number, end: number): ChatMessage[] {

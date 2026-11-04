@@ -485,6 +485,23 @@ rl.on("line", (line) => { const m = JSON.parse(line);
   await panel.receive({ type: "selectApproval", level: "ask" });
   pass("a failed command reaches the report with its error");
 
+  const skillFile = path.join(root, ".astute", "skills", "forced-skill.md");
+  fs.mkdirSync(path.dirname(skillFile), { recursive: true });
+  fs.writeFileSync(skillFile, "# Forced Skill\n\nAlways say the word HERON.\n");
+  await panel.receive({ type: "selectMode", mode: "ask" });
+  play([{ name: "forced_skill", args: {} }]);
+  await panel.send("/agent /forced-skill do the thing");
+  const skillMessages = mock.requests.filter((request) => request.path === "/api/chat").at(-1)?.body.messages as Array<{ role: string; content: string }>;
+  assert.ok(skillMessages[0].content.includes("Always say the word HERON"), "the skill is in the system prompt");
+  assert.ok(skillMessages.some((message) => message.role === "user" && message.content.includes("The user chose the Forced Skill skill")));
+  assert.ok(panel.lastReply?.notices?.some((notice) => notice.includes("Read the Forced Skill skill")), JSON.stringify(panel.lastReply?.notices));
+  assert.ok(toolResults().some((result) => result.includes("Always say the word HERON")), "calling it as a tool returns it");
+  const beforeTypo = mock.requests.length;
+  await panel.send("/forced-skil do the thing");
+  assert.equal(mock.requests.length, beforeTypo, "a mistyped skill never reaches the model");
+  fs.rmSync(skillFile);
+  pass("/skill-name forces the skill, with a mode, and a mistyped name is refused");
+
   const editorConfig = (): vscode.WorkspaceConfiguration => vscode.workspace.getConfiguration();
   await editorConfig().update("workbench.colorTheme", "Default Light Modern", vscode.ConfigurationTarget.Global);
   await config.update("vectorTheme.enabled", true, vscode.ConfigurationTarget.Global);

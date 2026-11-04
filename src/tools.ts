@@ -10,6 +10,7 @@ import type { ChatMode } from "./modes";
 import type { McpManager } from "./mcpManager";
 import type { ToolCall, ToolDefinition } from "./ollamaClient";
 import { isInside, isSensitivePath } from "./pathGuard";
+import type { Skill } from "./skillLoader";
 import { runShell } from "./shell";
 import { isToolAllowed, replaceUnique, toolsForMode } from "./toolDefinitions";
 import { webFetch, webSearch, WebSettings, webToolDefinitions } from "./webTools";
@@ -370,6 +371,7 @@ export interface ToolOptions {
   mcp?: McpManager;
   mcpTools?: ToolDefinition[];
   web?: WebSettings;
+  skills?: Skill[];
 }
 
 async function callWebTool(name: string, args: Record<string, unknown>, web: WebSettings, confirm: ConfirmChange, signal?: AbortSignal): Promise<string> {
@@ -417,6 +419,11 @@ export function createToolRunner(mode: ChatMode, options: ToolOptions = {}): Too
         return callWebTool(name, argumentsOf(call), web, confirm, signal);
       }
       if (!isToolAllowed(mode, name)) {
+        // Models call skills as if they were tools. Giving them the skill is more use than an error.
+        const skill = options.skills?.find((candidate) => candidate.name.replace(/-/g, "_") === name.replace(/-/g, "_"));
+        if (skill) {
+          return `${skill.title} is a skill, not a tool, so don't call it again. Follow these instructions:\n${clip(skill.content)}`;
+        }
         return `The tool ${name} is not available in ${mode} mode. Nothing was changed.`;
       }
       const args = argumentsOf(call);

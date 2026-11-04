@@ -42,7 +42,11 @@ test("recognises slash commands and leaves other text alone", () => {
   assert.deepEqual(parseSlash("/clear", skills), { kind: "clear" });
   const command = parseSlash("/code-review the parser", skills);
   assert.ok(command.kind === "skill" && command.prompt === "the parser");
-  assert.deepEqual(parseSlash("/unknown thing", skills), { kind: "none" });
+  assert.deepEqual(parseSlash("/unknown thing", skills), { kind: "unknown", name: "unknown" });
+  assert.deepEqual(parseSlash("/code-reveiw", skills), { kind: "unknown", name: "code-reveiw" });
+  assert.deepEqual(parseSlash("/etc/hosts has a bad line", skills), { kind: "none" }, "a path isn't a command");
+  const alone = parseSlash("/code-review", skills);
+  assert.ok(alone.kind === "skill" && alone.prompt === "");
   assert.deepEqual(parseSlash("plain /help", skills), { kind: "none" });
 });
 

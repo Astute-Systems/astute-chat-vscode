@@ -276,12 +276,13 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 </tr>
 <tr>
 <td><code>/&lt;skill-name&gt;</code></td>
-<td>Uses a specific skill</td>
+<td>Forces that skill for this message</td>
 </tr>
 </tbody>
 </table></div>
 <h2 id="skills">Skills</h2>
 <p>Add a markdown file under <code>.astute/skills</code>. Skills match your question on their name, title, keywords and description.</p>
+<p>To force a skill, start your message with its name, such as <code>/code-review the parser</code>. It applies to that message, and the chat confirms it was read. Add a mode first to use both, such as <code>/agent /code-review the parser</code>. If no skill has that name, the chat says so and nothing is sent.</p>
 <pre><code class="language-markdown">---
 description: Review code and report defects in priority order.
 keywords: review, bugs, defects

@@ -7,7 +7,7 @@ import { SUMMARY_PROMPT, summarySection } from "./chatSummary";
 import { chooseToolModel, EngineEvents, EngineResult, localModels, resolveModel, runChat } from "./chatEngine";
 import { hostDescription } from "./hostInfo";
 import { detectLanguages, LANGUAGE_SKILLS } from "./languageSkills";
-import { ChatMode, MCP_RULE, MODES, WEB_REMINDER, WEB_RULE } from "./modes";
+import { ChatMode, MCP_RULE, MODES, skillReminder, WEB_REMINDER, WEB_RULE } from "./modes";
 import { getChatSettings, getServerAddress, saveModel } from "./config";
 import { ChatMessage, ModelDetails, ModelInfo, OllamaClient, OllamaError } from "./ollamaClient";
 import { describeLocation, findRepo } from "./repoInfo";
@@ -201,6 +201,21 @@ export class ChatService {
     }
   }
 
+  /** Workspace skills, plus the built-in ones that a workspace skill hasn't replaced. */
+  commandSkills(): Skill[] {
+    const skills = this.skills();
+    const builtIn = Object.entries(LANGUAGE_SKILLS)
+      .filter(([name]) => !skills.some((skill) => skill.name === name))
+      .map(([name, language]) => ({ name, title: language.title, description: `Built-in ${language.title} guidance.`, keywords: [], filePath: "", content: language.content }));
+    return [...skills, ...builtIn];
+  }
+
+  /** A mistyped skill must not reach the model, which would answer without it. */
+  unknownCommandText(name: string): string {
+    const names = this.commandSkills().map((skill) => `\`/${skill.name}\``).join(", ");
+    return `There's no skill or command called \`/${name}\`, so nothing was sent. Skills: ${names}. Run \`/help\` for commands, or \`/refresh\` if you've just added a skill. To send this as a message, put a word before it.`;
+  }
+
   helpText(): string {
     const skills = this.skills();
     const list = skills.length ? skills.map((skill) => `- \`/${skill.name}\`: ${skill.description}`).join("\n") : vscode.workspace.isTrusted ? "No skills found in `.astute/skills`." : "Skills are disabled until you trust this workspace.";
@@ -211,6 +226,7 @@ export class ChatService {
       "- `/refresh`: reload workspace skills",
       "- `/clear`: start a new chat",
       "- `/ask`, `/plan`, `/agent`: switch mode, optionally followed by your request",
+      "- `/<skill-name>`: use that skill for this message, optionally followed by your request. Add a mode first with `/agent /<skill-name>`.",
       "",
       "**Modes**",
       "",
@@ -221,6 +237,8 @@ export class ChatService {
       "**Skills**",
       "",
       list,
+      "",
+      "`/c`, `/cpp` and `/python` use the built-in language guidance.",
       "",
       "A skill also starts automatically when your question matches it. Select code in the editor to include it in your next message.",
     ].join("\n");
@@ -279,6 +297,9 @@ export class ChatService {
     if (skill) {
       sections.push(`Follow this skill for the current request:\n${skill.title}\n${skill.content}`);
       this.log.info(`Using the ${skill.title} skill.`);
+      if (request.skill) {
+        request.events.onNotice(`Read the ${skill.title} skill${skill.filePath ? ` from ${vscode.workspace.asRelativePath(skill.filePath)}` : ""}.`);
+      }
     }
     if (settings.languageSkills) {
       const activeFile = vscode.window.activeTextEditor?.document.fileName;
@@ -352,7 +373,7 @@ export class ChatService {
     const result = await runChat({
       client,
       model,
-      messages: [{ role: "system", content: sections.filter(Boolean).join("\n\n") }, ...request.history, { role: "user", content: `${request.prompt}${imageText}${useTools ? (mode.requestReminder ?? "") : ""}${useTools && settings.web ? WEB_REMINDER : ""}`, images: directImages.length ? directImages : undefined }],
+      messages: [{ role: "system", content: sections.filter(Boolean).join("\n\n") }, ...request.history, { role: "user", content: `${request.prompt}${imageText}${useTools ? (mode.requestReminder ?? "") : ""}${useTools && settings.web ? WEB_REMINDER : ""}${request.skill ? skillReminder(request.skill.title) : ""}`, images: directImages.length ? directImages : undefined }],
       contextLimit,
       numThread: chooseThreads(settings.numThread),
       temperature: settings.temperature,
@@ -367,6 +388,7 @@ export class ChatService {
             mcp: this.mcp,
             mcpTools: mcpTools?.tools,
             web: settings.web,
+            skills,
           }) : undefined,
       maxToolRounds: mode.maxToolRounds,
       retryWithoutTools: mode.retryPrompt,

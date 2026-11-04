@@ -145,11 +145,12 @@ export function matchSkill(input: string, skills: Skill[]): Skill | undefined {
   return best?.skill;
 }
 
-export type SlashCommand = { kind: "help" | "refresh" | "clear" } | { kind: "mode"; mode: ChatMode; prompt: string } | { kind: "skill"; skill: Skill; prompt: string } | { kind: "none" };
+export type SlashCommand = { kind: "help" | "refresh" | "clear" } | { kind: "mode"; mode: ChatMode; prompt: string } | { kind: "skill"; skill: Skill; prompt: string } | { kind: "none" } | { kind: "unknown"; name: string };
 
 /** Recognises /help, /refresh, /clear, /ask, /plan, /agent and /<skill-name> at the start of a prompt. */
 export function parseSlash(input: string, skills: Skill[]): SlashCommand {
-  const match = input.trim().match(/^\/([\w-]+)\s*([\s\S]*)$/);
+  // A path such as /etc/hosts isn't a command, so the name must end at a space or the end.
+  const match = input.trim().match(/^\/([\w-]+)(?:\s+([\s\S]*))?$/);
   if (!match) {
     return { kind: "none" };
   }
@@ -158,8 +159,8 @@ export function parseSlash(input: string, skills: Skill[]): SlashCommand {
     return { kind: name };
   }
   if (isChatMode(name)) {
-    return { kind: "mode", mode: name, prompt: match[2].trim() };
+    return { kind: "mode", mode: name, prompt: (match[2] ?? "").trim() };
   }
   const skill = skills.find((candidate) => candidate.name === name);
-  return skill ? { kind: "skill", skill, prompt: match[2].trim() } : { kind: "none" };
+  return skill ? { kind: "skill", skill, prompt: (match[2] ?? "").trim() } : { kind: "unknown", name };
 }
