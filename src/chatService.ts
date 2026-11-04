@@ -12,6 +12,7 @@ import { getChatSettings, getServerAddress, saveModel } from "./config";
 import { ChatMessage, ModelDetails, ModelInfo, OllamaClient, OllamaError } from "./ollamaClient";
 import { describeLocation, findRepo } from "./repoInfo";
 import { isLoopback, toBaseUrl } from "./server";
+import { summariseProject } from "./projectSummary";
 import { buildSkillSystemPrompt, findSkills, matchSkill, Skill } from "./skillLoader";
 import { autoThreadCount, countPhysicalCores } from "./threads";
 import type { TerminalLog } from "./terminalLog";
@@ -290,7 +291,8 @@ export class ChatService {
 
     const skills = this.skills();
     const skill = request.skill ?? matchSkill(request.prompt, skills);
-    const sections = [buildSkillSystemPrompt(skills, settings.debugSkills), mode.instructions, await workspaceContext()];
+    const projectRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const sections = [buildSkillSystemPrompt(skills, settings.debugSkills), mode.instructions, await workspaceContext(), vscode.workspace.isTrusted && projectRoot ? summariseProject(projectRoot) : ""];
     if (request.chatSummary) {
       sections.push(summarySection(request.chatSummary));
     }

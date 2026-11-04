@@ -20,6 +20,8 @@ export async function run(): Promise<void> {
   console.log("REAL tools:", JSON.stringify((state?.tools ?? []).map((call) => call.slice(0, 110))));
   console.log("REAL reply:", JSON.stringify((state?.content ?? "").slice(-1200)));
   console.log("REAL start:", JSON.stringify((state?.content ?? "").slice(0, 120)));
+  console.log("REAL changes:", JSON.stringify(state?.changes));
+  console.log("REAL notices2:", JSON.stringify(state?.notices));
   console.log("REAL review:", JSON.stringify(state?.review));
   console.log("REAL notices:", JSON.stringify(state?.notices ?? []));
   console.log("REAL model:", JSON.stringify((state as { summary?: string } | undefined)?.summary), "error:", JSON.stringify((state as { error?: string } | undefined)?.error));

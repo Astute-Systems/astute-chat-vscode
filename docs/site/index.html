@@ -212,6 +212,7 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <h2 id="chat-history">Chat history</h2>
 <p><strong>New Chat</strong> saves the current chat. Select the history icon at the top of the tab to reopen or delete a saved chat. Astute Chat keeps your last 30 chats for each workspace, on this computer. Large tool output isn't kept in saved chats.</p>
 <h2 id="finding-code">Finding code</h2>
+<p>In a trusted workspace, Astute Chat reads your project's manifests, such as <code>package.json</code>, <code>pyproject.toml</code>, <code>Cargo.toml</code>, <code>go.mod</code> and <code>CMakeLists.txt</code>, and tells the model the project type, entry points, build commands and top folders. It uses only names and paths from those files, not their free text.</p>
 <p>Models can search the workspace from a plain description, such as &quot;where do we retry a connection&quot;. This ranks code by the words it shares with the description, including the parts of names like <code>runChat</code>. It needs no extra model and works offline, but it doesn't understand meaning, so it can miss code that uses different words.</p>
 <h2 id="errors-and-terminal-output">Errors and terminal output</h2>
 <p>Models can read VS Code's Problems panel, and your recent terminal commands with their output, so you can say &quot;fix that error&quot;. Terminal reading needs VS Code shell integration, which is on by default for bash, zsh, fish and PowerShell. Terminal output goes to the model only when it asks for it, so take care if your commands print secrets.</p>

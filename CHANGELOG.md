@@ -41,6 +41,7 @@ First Marketplace release.
 - The workspace root, Git repository root and branch
 - Images and screenshots, with a vision model to read them for other models
 - Workspace skills and `AGENTS.md`
+- A short project summary with entry points and build commands, read from your manifests
 
 ### Ollama
 

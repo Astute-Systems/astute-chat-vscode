@@ -147,6 +147,8 @@ Models can't open addresses on your computer or private network, even through a 
 
 ## Finding code
 
+In a trusted workspace, Astute Chat reads your project's manifests, such as `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod` and `CMakeLists.txt`, and tells the model the project type, entry points, build commands and top folders. It uses only names and paths from those files, not their free text.
+
 Models can search the workspace from a plain description, such as "where do we retry a connection". This ranks code by the words it shares with the description, including the parts of names like `runChat`. It needs no extra model and works offline, but it doesn't understand meaning, so it can miss code that uses different words.
 
 ## Errors and terminal output
