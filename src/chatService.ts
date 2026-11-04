@@ -4,7 +4,7 @@ import * as vscode from "vscode";
 import { findAgentsFile } from "./agentsFile";
 import type { ChangeJournal } from "./changeJournal";
 import { SUMMARY_PROMPT, summarySection } from "./chatSummary";
-import { chooseToolModel, EngineEvents, EngineResult, localModels, resolveModel, runChat } from "./chatEngine";
+import { chooseToolModel, EngineEvents, EngineResult, localModels, resolveModel, runChat, ToolRunner } from "./chatEngine";
 import { hostDescription } from "./hostInfo";
 import { detectLanguages, LANGUAGE_SKILLS } from "./languageSkills";
 import { ChatMode, MCP_RULE, MODES, skillReminder, WEB_REMINDER, WEB_RULE } from "./modes";
@@ -202,6 +202,18 @@ export class ChatService {
     }
   }
 
+  /** Logs how each tool ended. Only the first line, because output can hold private details. */
+  private tracedTools(tools: ToolRunner): ToolRunner {
+    return {
+      definitions: tools.definitions,
+      run: async (call, signal) => {
+        const result = await tools.run(call, signal);
+        this.log.info(`Tool ${call.function.name}: ${result.split("\n")[0].slice(0, 120)}`);
+        return result;
+      },
+    };
+  }
+
   /** Workspace skills, plus the built-in ones that a workspace skill hasn't replaced. */
   commandSkills(): Skill[] {
     const skills = this.skills();
@@ -382,7 +394,7 @@ export class ChatService {
       keepAlive: settings.keepAlive,
       idleTimeoutMs: settings.idleTimeoutMs,
       think: settings.thinking && details.capabilities.includes("thinking"),
-      tools: useTools ? createToolRunner(mode.id, {
+      tools: useTools ? this.tracedTools(createToolRunner(mode.id, {
             confirm: request.confirm,
             readImage,
             journal: request.journal,
@@ -391,7 +403,7 @@ export class ChatService {
             mcpTools: mcpTools?.tools,
             web: settings.web,
             skills,
-          }) : undefined,
+          })) : undefined,
       maxToolRounds: mode.maxToolRounds,
       retryWithoutTools: mode.retryPrompt,
       fixFailures: mode.fixPrompt,

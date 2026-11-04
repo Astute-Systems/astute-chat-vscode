@@ -792,6 +792,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     } finally {
       if (MODES[mode].canChange) {
         active.changes = journal.report();
+        this.log.info(`Change report: ${JSON.stringify(active.changes)}`);
       }
       const reviewed = review ? await this.finishReview(review, prompt, [...journal.report().created, ...journal.report().edited], active) : false;
       // A review branch already keeps this work apart, and Discard removes it.
