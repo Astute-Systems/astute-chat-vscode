@@ -404,7 +404,7 @@ async function callMcpTool(name: string, args: Record<string, unknown>, options:
 
 export function createToolRunner(mode: ChatMode, options: ToolOptions = {}): ToolRunner {
   const { confirm = async () => false, readImage, journal, readTerminal, mcp, mcpTools = [], web } = options;
-  const webTools = web ? webToolDefinitions(web) : [];
+  const webTools = web ? webToolDefinitions() : [];
   return {
     definitions: [...toolsForMode(mode), ...webTools, ...mcpTools],
     async run(call, signal) {

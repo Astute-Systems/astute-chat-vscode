@@ -2,7 +2,7 @@ import * as assert from "node:assert/strict";
 import * as http from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
-import { fetchText, htmlToText, isPrivateAddress, parseWebUrl, webFetch, webSearch, webToolDefinitions } from "../webTools";
+import { fetchText, htmlToText, isPrivateAddress, parseDuckDuckGo, parseWebUrl, webFetch, webSearch, webToolDefinitions } from "../webTools";
 
 let base = "";
 let formats = true;
@@ -137,7 +137,21 @@ test("explains a search server with JSON turned off", async (t) => {
   await assert.rejects(webSearch("x", { searchUrl: base, allowPrivateAddresses: false }), /search\.formats/);
 });
 
-test("offers search only with a search server", () => {
-  assert.deepEqual(webToolDefinitions({ searchUrl: "", allowPrivateAddresses: false }).map((tool) => tool.function.name), ["web_fetch"]);
-  assert.deepEqual(webToolDefinitions({ searchUrl: base, allowPrivateAddresses: false }).map((tool) => tool.function.name), ["web_search", "web_fetch"]);
+test("offers search and fetch", () => {
+  assert.deepEqual(webToolDefinitions().map((tool) => tool.function.name), ["web_search", "web_fetch"]);
+});
+
+const result = (href: string, title: string, snippet: string): string => `<div class="result results_links results_links_deep web-result ">
+  <h2 class="result__title"><a rel="nofollow" class="result__a" href="${href}">${title}</a></h2>
+  <a class="result__snippet" href="${href}">${snippet}</a></div>`;
+
+test("reads DuckDuckGo results", () => {
+  const html = result("//duckduckgo.com/l/?uddg=https%3A%2F%2Fone.example%2Fa%3Fb%3D1&amp;rut=abc", "Best <b>models</b> &amp; more", "The <b>best</b> one")
+    + result("https://duckduckgo.com/y.js?ad_domain=x&amp;u3=y", "Advert", "Buy this")
+    + result("//duckduckgo.com/l/?uddg=https%3A%2F%2Ftwo.example%2F&amp;rut=def", "Two", "");
+  assert.deepEqual(parseDuckDuckGo(html), [
+    { title: "Best models & more", url: "https://one.example/a?b=1", content: "The best one" },
+    { title: "Two", url: "https://two.example/", content: "" },
+  ]);
+  assert.deepEqual(parseDuckDuckGo("<html>a challenge page</html>"), []);
 });

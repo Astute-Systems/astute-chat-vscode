@@ -31,7 +31,7 @@ Private AI chat and a coding agent for VS Code, running on your own [Ollama](htt
 
 ## Privacy
 
-Astute Chat has no telemetry. Your prompts, code and images go only to the Ollama server you choose. The default server is on your own machine. If you turn on [web research](#web-research), search queries go to your search server, and the addresses models open are contacted directly.
+Astute Chat has no telemetry. Your prompts, code and images go only to the Ollama server you choose. The default server is on your own machine. If you turn on [web research](#web-research), search queries go to DuckDuckGo or your own search server, and the addresses models open are contacted directly.
 
 ## Modes
 
@@ -124,15 +124,20 @@ Servers run as programs on your machine, so add only ones you trust. They come o
 Web tools are off by default, so nothing goes online unless you turn them on in your user settings:
 
 ```json
-"astuteChat.web.enabled": true,
+"astuteChat.web.enabled": true
+```
+
+Models can then search the web and read pages in Ask, Plan and Agent. Searches go to DuckDuckGo, by reading its HTML results page, so they can stop working or be limited if it changes.
+
+For more privacy, run your own [SearXNG](https://docs.searxng.org) server with `json` added to `search.formats` in its `settings.yml`, and point Astute Chat at it:
+
+```json
 "astuteChat.web.searchUrl": "http://127.0.0.1:8888"
 ```
 
-Models can then read web pages in Ask, Plan and Agent. Searching needs a [SearXNG](https://docs.searxng.org) server, which you can run yourself, with `json` added to `search.formats` in its `settings.yml`. Without one, models can still open addresses you give them.
-
 Each search and each page asks first, showing the query or address, at every level except full **Auto**. Check these before you approve them, because a model could be tricked into putting private details in one. Web tools need a model that supports tools and an open, trusted folder.
 
-Models can't open addresses on your computer or private network, even through a redirect, unless you turn on `astuteChat.web.allowPrivateAddresses`. Only the search server is exempt. Pages are limited to text, and long ones are shortened, so a larger `astuteChat.numCtx` helps with research.
+Models can't open addresses on your computer or private network, even through a redirect, unless you turn on `astuteChat.web.allowPrivateAddresses`. Only your own search server is exempt. Pages are limited to text, and long ones are shortened, so a larger `astuteChat.numCtx` helps with research.
 
 ## Chat history
 
@@ -253,7 +258,7 @@ Astute Chat follows an `AGENTS.md` file in your workspace, the same format many 
 | `astuteChat.mcp.servers` | `{}` | MCP servers for Agent |
 | `astuteChat.vectorTheme.enabled` | `false` | Applies the Astute Vector look to all of VS Code |
 | `astuteChat.web.enabled` | `false` | Lets models read web pages |
-| `astuteChat.web.searchUrl` | Empty | SearXNG server for web search |
+| `astuteChat.web.searchUrl` | Empty | SearXNG server for web search, instead of DuckDuckGo |
 | `astuteChat.web.allowPrivateAddresses` | `false` | Lets models open addresses on your private network |
 | `astuteChat.approvals.allowedCommands` | `[]` | Extra commands that Safe auto can approve |
 | `astuteChat.languageSkills` | `false` | Adds experimental C, C++ and Python guidance |

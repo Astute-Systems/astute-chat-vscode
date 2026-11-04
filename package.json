@@ -156,7 +156,7 @@
           "type": "boolean",
           "default": false,
           "scope": "machine",
-          "markdownDescription": "Let models read web pages, in every mode. Each request asks first, except in full Auto. Search queries and addresses leave your machine. This can only be set per machine, so a workspace can't turn it on."
+          "markdownDescription": "Let models read web pages, in every mode. Each request asks first, except in full Auto. Search queries go to DuckDuckGo, or your own search server if you set one, and addresses are contacted directly. This can only be set per machine, so a workspace can't turn it on."
         },
         "astuteChat.web.searchUrl": {
           "type": "string",
@@ -164,7 +164,7 @@
           "scope": "machine",
           "pattern": "^$|^https?://",
           "patternErrorMessage": "Enter a full address, such as http://127.0.0.1:8888.",
-          "markdownDescription": "Address of a [SearXNG](https://docs.searxng.org) server with JSON results turned on. Without one, models can open addresses but can't search."
+          "markdownDescription": "Address of a [SearXNG](https://docs.searxng.org) server with JSON results turned on. Leave this empty to search with DuckDuckGo."
         },
         "astuteChat.web.allowPrivateAddresses": {
           "type": "boolean",

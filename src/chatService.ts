@@ -7,7 +7,7 @@ import { SUMMARY_PROMPT, summarySection } from "./chatSummary";
 import { chooseToolModel, EngineEvents, EngineResult, resolveModel, runChat } from "./chatEngine";
 import { hostDescription } from "./hostInfo";
 import { detectLanguages, LANGUAGE_SKILLS } from "./languageSkills";
-import { ChatMode, MCP_RULE, MODES, WEB_RULE } from "./modes";
+import { ChatMode, MCP_RULE, MODES, WEB_REMINDER, WEB_RULE } from "./modes";
 import { getChatSettings, getServerAddress, saveModel } from "./config";
 import { ChatMessage, ModelDetails, ModelInfo, OllamaClient, OllamaError } from "./ollamaClient";
 import { describeLocation, findRepo } from "./repoInfo";
@@ -342,7 +342,7 @@ export class ChatService {
     const result = await runChat({
       client,
       model,
-      messages: [{ role: "system", content: sections.filter(Boolean).join("\n\n") }, ...request.history, { role: "user", content: `${request.prompt}${imageText}${useTools ? (mode.requestReminder ?? "") : ""}`, images: directImages.length ? directImages : undefined }],
+      messages: [{ role: "system", content: sections.filter(Boolean).join("\n\n") }, ...request.history, { role: "user", content: `${request.prompt}${imageText}${useTools ? (mode.requestReminder ?? "") : ""}${useTools && settings.web ? WEB_REMINDER : ""}`, images: directImages.length ? directImages : undefined }],
       contextLimit,
       numThread: chooseThreads(settings.numThread),
       temperature: settings.temperature,
