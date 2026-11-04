@@ -33,6 +33,8 @@ Private AI chat and a coding agent for VS Code, running on your own [Ollama](htt
 
 Astute Chat has no telemetry. Your prompts, code and images go only to the Ollama server you choose. The default server is on your own machine. If you turn on [web research](#web-research), search queries go to DuckDuckGo or your own search server, and the addresses models open are contacted directly.
 
+Ollama also offers cloud models, with names ending in `:cloud`, which run on Ollama's servers and need `ollama signin`. They're marked ☁ in the model list. Your prompts and code leave your computer when you use one, so Astute Chat never picks one by itself. It only uses one you've chosen.
+
 ## Modes
 
 | Mode | What it does | Can change your workspace |

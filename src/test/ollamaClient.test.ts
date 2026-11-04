@@ -1,4 +1,6 @@
 import * as assert from "node:assert/strict";
+import * as http from "node:http";
+import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 import { NdjsonParser, OllamaClient, OllamaError } from "../ollamaClient";
 import { line, startMock } from "./mockOllama";
@@ -87,4 +89,20 @@ test("reads capabilities and the context limit", async (t) => {
   const mock = await startMock(() => undefined);
   t.after(() => mock.close());
   assert.deepEqual(await new OllamaClient(mock.url).showModel("tiny:1b"), { capabilities: ["completion", "tools", "thinking"], contextLength: 4096 });
+});
+
+test("marks cloud models, and explains a server that isn't signed in", async (t) => {
+  const server = http.createServer((req, res) => {
+    if (req.url === "/api/tags") {
+      res.end(JSON.stringify({ models: [{ name: "local:1b", size: 9 }, { name: "a:cloud", size: 3 }, { name: "renamed", size: 3, remote_host: "https://ollama.com" }] }));
+    } else {
+      res.statusCode = 401;
+      res.end(JSON.stringify({ error: "Unauthorized" }));
+    }
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const client = new OllamaClient(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
+  assert.deepEqual((await client.listModels()).map((model) => model.remote), [false, true, true]);
+  await assert.rejects(client.showModel("a:cloud"), /ollama signin/);
 });

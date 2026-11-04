@@ -210,6 +210,14 @@ export function checkCommand(command: string, allowed: readonly string[] = []): 
   return { safe: true };
 }
 
+/** Commands get no input, so an interactive chat starts and ends at once, which looks like it did nothing. */
+export function interactiveCommandHint(command: string): string | undefined {
+  const model = /^\s*ollama\s+run\s+([^\s-]\S*)\s*$/.exec(command)?.[1];
+  return model
+    ? `This model is available, but "ollama run ${model}" with no prompt opens an interactive chat, and commands here get no input, so it closed straight away. To try it, use: ollama run ${model} "your prompt". To chat with it, tell the user to choose it in the model list.`
+    : undefined;
+}
+
 /** Decides whether a change can go ahead or must wait for the user. */
 export function decide(level: ApprovalLevel, change: ChangeRequest, allowedCommands: readonly string[] = []): { allow: boolean; reason?: string } {
   // Hard limits such as workspace paths and the dummy file check still apply,

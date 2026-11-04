@@ -248,7 +248,7 @@ test("sends a failed build back to be fixed, then finishes", async (t) => {
   const events = recorder();
   const result = await runChat({ ...retryRequest(mock.url, events, buildTools(["Exit code 2\nerror"])), fixFailures: "Fix it." });
   assert.equal(round, 4);
-  assert.equal(mock.requests.filter((r) => r.path === "/api/chat")[2].body.messages.at(-1).content, "Fix it.");
+  assert.equal(mock.requests.filter((r) => r.path === "/api/chat")[2].body.messages.at(-1).content, "Fix it.\n\nIt printed:\nerror");
   assert.match(result.content, /Fixed\.$/);
   assert.deepEqual(events.notices, []);
 });
@@ -264,7 +264,38 @@ test("stops after three fixes and says the command still fails", async (t) => {
   const events = recorder();
   await runChat({ ...retryRequest(mock.url, events, { definitions: [], run: async () => "Exit code 1\nerror" }), fixFailures: "Fix it." });
   assert.equal(round, 8);
-  assert.match(events.notices.at(-1) ?? "", /still failing/);
+  assert.match(events.notices.at(-1) ?? "", /still failed when this reply ended\. It printed: error/);
+});
+
+test("a question doesn't hide a failed command", async (t) => {
+  let round = 0;
+  const mock = await startMock((_req, res) => {
+    round += 1;
+    const replies = [{ tool_calls: [{ function: { name: "run_command", arguments: {} } }] }, { content: "I can't run commands. What should I do?" }, { content: "It needs the cloud tag." }];
+    res.end(line({ message: { content: "", ...replies[Math.min(round, 3) - 1] }, done: true, eval_count: 1 }));
+  });
+  t.after(() => mock.close());
+  const events = recorder();
+  const error = 'Error: file does not exist\n"glm-5.3:cloud" is available as a cloud model.';
+  await runChat({ ...retryRequest(mock.url, events, { definitions: [], run: async () => `Exit code 1\n${error}` }), fixFailures: "Fix it." });
+  const fix = mock.requests.filter((r) => r.path === "/api/chat")[2].body.messages.at(-1).content;
+  assert.match(fix, /glm-5\.3:cloud/, "the model is told the real error");
+  assert.match(events.notices.at(-1) ?? "", /It printed: Error: file does not exist/, "so is the user");
+});
+
+test("a later success clears a failed command", async (t) => {
+  let round = 0;
+  const mock = await startMock((_req, res) => {
+    round += 1;
+    const call = round <= 2;
+    res.end(line({ message: { content: call ? "" : "Done.", tool_calls: call ? [{ function: { name: "run_command", arguments: {} } }] : undefined }, done: true, eval_count: 1 }));
+  });
+  t.after(() => mock.close());
+  const events = recorder();
+  const results = ["Exit code 1\nerror", "Exit code 0\nok"];
+  await runChat({ ...retryRequest(mock.url, events, { definitions: [], run: async () => results.shift() as string }), fixFailures: "Fix it." });
+  assert.equal(round, 3);
+  assert.deepEqual(events.notices, []);
 });
 
 test("does not retry a normal final reply after tools ran", async (t) => {
@@ -278,4 +309,14 @@ test("does not retry a normal final reply after tools ran", async (t) => {
   await runChat(retryRequest(mock.url, events, noopTools));
   assert.equal(round, 2);
   assert.deepEqual(events.notices, []);
+});
+
+test("automatic choices never pick a cloud model", () => {
+  const models = [{ name: "glm-5.3:cloud", size: 293, remote: true }, { name: "gemma3:4b", size: 3000 }, { name: "qwen3:8b", size: 5000 }];
+  assert.deepEqual(resolveModel("", models), { name: "gemma3:4b", reason: "default" });
+  assert.deepEqual(resolveModel("", [models[0]]), { name: undefined, reason: "missing" });
+  assert.equal(resolveModel("glm-5.3:cloud", models).name, "glm-5.3:cloud", "a model the user chose is still used");
+  const withTools = models.map((model) => ({ ...model, capabilities: ["tools", "thinking"] }));
+  assert.equal(chooseToolModel(withTools), "gemma3:4b");
+  assert.equal(chooseToolModel(withTools.slice(0, 1)), undefined);
 });

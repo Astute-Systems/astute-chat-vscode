@@ -20,6 +20,8 @@ export async function run(): Promise<void> {
   console.log("REAL tools:", JSON.stringify((state?.tools ?? []).map((call) => call.slice(0, 110))));
   console.log("REAL reply:", JSON.stringify((state?.content ?? "").slice(-1200)));
   console.log("REAL review:", JSON.stringify(state?.review));
+  console.log("REAL notices:", JSON.stringify(state?.notices ?? []));
+  console.log("REAL model:", JSON.stringify((state as { summary?: string } | undefined)?.summary), "error:", JSON.stringify((state as { error?: string } | undefined)?.error));
   if (process.env.ASTUTE_REVIEW) {
     console.log("REAL branch:", execFileSync("git", ["branch", "--show-current"], { cwd: root }).toString().trim());
   }

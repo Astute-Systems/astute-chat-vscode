@@ -56,6 +56,8 @@ export interface ChatOutcome {
 export interface ModelInfo {
   name: string;
   size: number;
+  /** Runs on another server, so prompts and code leave this one. */
+  remote?: boolean;
 }
 
 export interface ModelDetails {
@@ -96,6 +98,9 @@ function classifyServerError(status: number, body: string): OllamaError {
 
   if (status === 404 && /not found/i.test(detail)) {
     return new OllamaError("model-not-found", detail);
+  }
+  if (status === 401) {
+    return new OllamaError("server", "Ollama isn't signed in, which cloud models need. Run `ollama signin` in a terminal, then try again. Cloud models send your prompts and code to Ollama's servers, so you can choose a local model instead.");
   }
   if (/memory/i.test(detail)) {
     return new OllamaError("out-of-memory", `The server ran out of memory: ${detail}`);
@@ -206,8 +211,13 @@ export class OllamaClient {
   }
 
   async listModels(): Promise<ModelInfo[]> {
-    const body = await this.requestJson<{ models?: Array<{ name?: string; size?: number }> }>("/api/tags");
-    return (body.models ?? []).filter((model) => model.name).map((model) => ({ name: model.name as string, size: model.size ?? 0 }));
+    const body = await this.requestJson<{ models?: Array<{ name?: string; size?: number; remote_host?: string; remote_model?: string }> }>("/api/tags");
+    return (body.models ?? [])
+      .filter((model) => model.name)
+      .map((model) => {
+        const name = model.name as string;
+        return { name, size: model.size ?? 0, remote: Boolean(model.remote_host || model.remote_model) || /[:-]cloud$/.test(name) };
+      });
   }
 
   async loadedModels(): Promise<Array<{ name: string; onGpu: boolean }>> {

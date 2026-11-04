@@ -1,6 +1,6 @@
 import * as assert from "node:assert/strict";
 import { test } from "node:test";
-import { ChangeRequest, checkCommand, checkEdit, decide } from "../approvals";
+import { ChangeRequest, checkCommand, checkEdit, decide, interactiveCommandHint } from "../approvals";
 import { APPROVALS } from "../modes";
 
 const edit = (path: string): ChangeRequest => ({ kind: "edit", title: "t", detail: "d", path });
@@ -117,4 +117,13 @@ test("the cycle has three levels, and only the full Auto toggle approves everyth
   assert.equal(decide("auto", command("rm -rf /")).allow, false);
   assert.equal(decide("full", command("make install")).allow, true);
   assert.equal(decide("full", edit("package.json")).allow, true);
+});
+
+test("explains an interactive ollama chat", () => {
+  for (const text of ["ollama run glm-5.3", "  ollama  run glm-5.3:cloud "]) {
+    assert.match(interactiveCommandHint(text) ?? "", /your prompt/, text);
+  }
+  for (const text of ['ollama run glm-5.3 "hello"', "ollama pull glm-5.3", "ollama run", "ollama list", "npm test", "ollama run glm && rm a"]) {
+    assert.equal(interactiveCommandHint(text), undefined, text);
+  }
 });

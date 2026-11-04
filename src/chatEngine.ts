@@ -5,6 +5,7 @@ const DEFAULT_TOOL_ROUNDS = 6;
 const STATUS_INTERVAL_MS = 250;
 const KEEP_TOOL_RESULTS = 2;
 const MAX_FIX_ATTEMPTS = 3;
+const MAX_FAILURE_CHARS = 600;
 /** Share of the context window kept free for the reply. */
 const PROMPT_SHARE = 0.75;
 
@@ -109,9 +110,17 @@ export function fitToContext(messages: ChatMessage[], limit: number, requestInde
   return { messages: kept, dropped };
 }
 
+/**
+ * Automatic choices must stay on this server, because a cloud model sends code away.
+ * Cloud models also look smallest, at a few hundred bytes, so size alone would pick one.
+ */
+export function localModels<T extends { remote?: boolean }>(models: readonly T[]): T[] {
+  return models.filter((model) => !model.remote);
+}
+
 /** Prefers models that support thinking too, which call tools more reliably, then the smallest. */
-export function chooseToolModel(models: ReadonlyArray<{ name: string; size: number; capabilities: string[] }>): string | undefined {
-  return models
+export function chooseToolModel(models: ReadonlyArray<{ name: string; size: number; remote?: boolean; capabilities: string[] }>): string | undefined {
+  return localModels(models)
     .filter((model) => model.capabilities.includes("tools"))
     .sort((a, b) => Number(b.capabilities.includes("thinking")) - Number(a.capabilities.includes("thinking")) || a.size - b.size)[0]?.name;
 }
@@ -125,11 +134,17 @@ export function commandFailed(result: string): boolean {
   return status !== undefined && status !== "Exit code 0";
 }
 
-/** Picks a model: the exact name, a unique tagless match, or the smallest one. */
+/** The end of a failed command's output, where the error is. It comes from the command, so a model can't reword it. */
+function failureOutput(result: string): string {
+  const output = result.split("\n").slice(1).join("\n").trim();
+  return output.length > MAX_FAILURE_CHARS ? `…${output.slice(-MAX_FAILURE_CHARS)}` : output;
+}
+
+/** Picks a model: the exact name, a unique tagless match, or the smallest local one. */
 export function resolveModel(configured: string, installed: ModelInfo[]): { name?: string; reason?: "default" | "missing" } {
   const wanted = configured.trim();
   if (!wanted) {
-    const smallest = [...installed].sort((a, b) => a.size - b.size)[0];
+    const smallest = localModels(installed).sort((a, b) => a.size - b.size)[0];
     return { name: smallest?.name, reason: smallest ? "default" : "missing" };
   }
   if (installed.some((model) => model.name === wanted)) {
@@ -148,7 +163,7 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
   let lastUsage: ChatUsage = {};
   let usedTools = false;
   let retried = false;
-  let lastCommandFailed = false;
+  let failedOutput: string | undefined;
   let fixAttempts = 0;
 
   const ticker = setInterval(() => events.onStatus(meter.status()), STATUS_INTERVAL_MS);
@@ -209,17 +224,18 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
         events.onNotice(`${model} didn't use any tools, so nothing in the workspace changed. Try again, or choose another model.`);
       }
 
-      if (outcome.toolCalls.length === 0 && request.fixFailures && lastCommandFailed && !askedQuestion) {
+      // Asking a question doesn't excuse a failure: models also use one to hide it.
+      if (outcome.toolCalls.length === 0 && request.fixFailures && failedOutput !== undefined) {
         if (fixAttempts < MAX_FIX_ATTEMPTS && offerTools) {
           fixAttempts += 1;
-          transcript.push({ role: "assistant", content: outcome.content }, { role: "user", content: request.fixFailures });
+          transcript.push({ role: "assistant", content: outcome.content }, { role: "user", content: `${request.fixFailures}\n\nIt printed:\n${failedOutput}` });
           if (content) {
             content += "\n\n";
             events.onContent("\n\n");
           }
           continue;
         }
-        events.onNotice("The last command was still failing when this reply ended.");
+        events.onNotice(`The last command still failed when this reply ended. It printed: ${failedOutput}`);
       }
 
       if (outcome.toolCalls.length === 0 || !request.tools) {
@@ -240,7 +256,7 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
           events.onNotice(result);
         }
         if (call.function.name === "run_command") {
-          lastCommandFailed = commandFailed(result);
+          failedOutput = commandFailed(result) ? failureOutput(result) : undefined;
         }
         transcript.push({ role: "tool", tool_name: call.function.name, content: result });
       }

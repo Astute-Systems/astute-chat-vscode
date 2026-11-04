@@ -473,6 +473,18 @@ rl.on("line", (line) => { const m = JSON.parse(line);
   await new Promise((resolve) => searchServer.close(resolve));
   pass("web tools are off by default, ask first in Ask, and can't reach private addresses");
 
+  await panel.receive({ type: "selectMode", mode: "agent" });
+  await panel.receive({ type: "selectApproval", level: "full" });
+  play([{ name: "run_command", args: { command: "echo model not found; exit 3" } }]);
+  await panel.send("run it");
+  const failedReply = panel.lastReply;
+  assert.equal(failedReply?.changes?.commands, 1, JSON.stringify(failedReply?.changes));
+  assert.equal(failedReply?.changes?.failedCommands, 1);
+  assert.ok(toolResults().some((result) => result.startsWith("Exit code 3") && result.includes("model not found")), toolResults().join());
+  assert.ok(failedReply?.notices?.some((notice) => notice.includes("model not found")), JSON.stringify(failedReply?.notices));
+  await panel.receive({ type: "selectApproval", level: "ask" });
+  pass("a failed command reaches the report with its error");
+
   const editorConfig = (): vscode.WorkspaceConfiguration => vscode.workspace.getConfiguration();
   await editorConfig().update("workbench.colorTheme", "Default Light Modern", vscode.ConfigurationTarget.Global);
   await config.update("vectorTheme.enabled", true, vscode.ConfigurationTarget.Global);

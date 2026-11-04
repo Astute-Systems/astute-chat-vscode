@@ -48,3 +48,4 @@ First Marketplace release.
 - Any local or network server by IP address and port
 - Automatic CPU thread count for local servers on large CPUs
 - Works with no internet connection
+- Cloud models are marked, and are never chosen automatically

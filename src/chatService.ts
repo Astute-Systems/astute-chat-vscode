@@ -4,7 +4,7 @@ import * as vscode from "vscode";
 import { findAgentsFile } from "./agentsFile";
 import type { ChangeJournal } from "./changeJournal";
 import { SUMMARY_PROMPT, summarySection } from "./chatSummary";
-import { chooseToolModel, EngineEvents, EngineResult, resolveModel, runChat } from "./chatEngine";
+import { chooseToolModel, EngineEvents, EngineResult, localModels, resolveModel, runChat } from "./chatEngine";
 import { hostDescription } from "./hostInfo";
 import { detectLanguages, LANGUAGE_SKILLS } from "./languageSkills";
 import { ChatMode, MCP_RULE, MODES, WEB_REMINDER, WEB_RULE } from "./modes";
@@ -82,6 +82,8 @@ async function projectFileNames(): Promise<string[]> {
 
 /** Everything both chat surfaces share. The panel and @astute only render it. */
 export class ChatService {
+  /** Each cloud model is mentioned once, so the warning stays noticeable. */
+  private readonly warnedCloud = new Set<string>();
   constructor(
     private readonly log: vscode.LogOutputChannel,
     private readonly terminal?: TerminalLog,
@@ -115,7 +117,7 @@ export class ChatService {
       }
       return { name: configured, helper: true };
     }
-    for (const entry of [...installed].sort((a, b) => a.size - b.size)) {
+    for (const entry of localModels(installed).sort((a, b) => a.size - b.size)) {
       const info = await client.showModel(entry.name).catch(() => undefined);
       if (info?.capabilities.includes("vision")) {
         return { name: entry.name, helper: true };
@@ -230,11 +232,14 @@ export class ChatService {
       throw new OllamaError("model-not-found", "This Ollama server has no models. Run `ollama pull <model>` on a connected machine, or copy its `~/.ollama/models` folder to the server.");
     }
     const { name, reason } = resolveModel(configured, installed);
+    if (!name && !configured.trim()) {
+      throw new OllamaError("model-not-found", "No local model is installed. Run `ollama pull <model>`, or choose a cloud model in the model list if you're happy for your prompts and code to go to its server.");
+    }
     if (!name) {
       throw new OllamaError("model-not-found", `Model "${configured}" isn't installed on this server. Choose one of: ${installed.map((model) => model.name).join(", ")}.`);
     }
     if (reason === "default") {
-      events.onNotice(`Using ${name}, the smallest installed model. You can choose another in the model list.`);
+      events.onNotice(`Using ${name}, the smallest local model. You can choose another in the model list.`);
     }
     return name;
   }
@@ -252,6 +257,11 @@ export class ChatService {
         model = replacement;
         details = await client.showModel(model).catch(() => details);
       }
+    }
+
+    if ((await client.listModels().catch(() => [])).some((entry) => entry.name === model && entry.remote) && !this.warnedCloud.has(model)) {
+      this.warnedCloud.add(model);
+      request.events.onNotice(`${model} is a cloud model, so your prompts and code leave this computer.`);
     }
 
     const running = await client.loadedModels().catch(() => []);

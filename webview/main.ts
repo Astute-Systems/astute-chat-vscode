@@ -646,11 +646,12 @@ function renderHeader(state: ViewState): void {
   }
   modelSelect.replaceChildren();
   if (!state.model) {
-    modelSelect.add(new Option("Smallest installed model", "", true, true));
+    modelSelect.add(new Option("Smallest local model", "", true, true));
   }
   for (const name of names) {
     const abilities = (state.abilities[name] ?? []).filter((ability) => ability === "tools" || ability === "vision" || ability === "thinking");
-    modelSelect.add(new Option(abilities.length ? `${name} · ${abilities.join(" · ")}` : name, name, false, name === state.model));
+    const label = state.abilities[name]?.includes("cloud") ? `☁ ${name}` : name;
+    modelSelect.add(new Option(abilities.length ? `${label} · ${abilities.join(" · ")}` : label, name, false, name === state.model));
   }
   modelSelect.disabled = names.length === 0;
 

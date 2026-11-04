@@ -1,7 +1,7 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as vscode from "vscode";
-import { ChangeRequest, checkCommand } from "./approvals";
+import { ChangeRequest, checkCommand, interactiveCommandHint } from "./approvals";
 import type { ChangeJournal } from "./changeJournal";
 import { REFUSED, ToolRunner } from "./chatEngine";
 import { chunkFile, CodeChunk, rankChunks } from "./codeSearch";
@@ -358,7 +358,8 @@ async function runCommand(command: string, confirm: ConfirmChange, signal?: Abor
   journal?.recordCommand(result.exitCode === 0);
   const status = result.stopped ? "Stopped by the user" : result.timedOut ? "Timed out" : `Exit code ${String(result.exitCode)}`;
   const warning = empty.length ? `\n${REFUSED}${empty.join(", ")} ${empty.length === 1 ? "is" : "are"} empty, so the build did not produce a real result.` : "";
-  return clip(`${warning.trim()}${warning ? "\n" : ""}${status}\n${result.output || "(no output)"}`);
+  const hint = result.exitCode === 0 ? interactiveCommandHint(command) : undefined;
+  return clip(`${warning.trim()}${warning ? "\n" : ""}${status}\n${result.output || "(no output)"}${hint ? `\n${hint}` : ""}`);
 }
 
 export interface ToolOptions {

@@ -61,7 +61,7 @@ export class ConnectionMonitor implements vscode.Disposable {
       await Promise.all(models.filter((model) => !this.abilities.has(model.name)).map(async (model) => {
         const details = await client.showModel(model.name).catch(() => undefined);
         if (details) {
-          this.abilities.set(model.name, details.capabilities);
+          this.abilities.set(model.name, model.remote ? [...details.capabilities, "cloud"] : details.capabilities);
         }
       }));
       const count = `${models.length} model${models.length === 1 ? "" : "s"}`;
