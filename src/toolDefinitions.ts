@@ -56,6 +56,16 @@ export const READ_TOOLS: ToolDefinition[] = [
     },
     ["query"],
   ),
+  tool(
+    "generate_svg",
+    "Generates an SVG image based on a detailed prompt. Useful for creating diagrams, logos, or illustrations for documentation.",
+    {
+      prompt: { type: "string", description: "A detailed description of the SVG content to generate." },
+      width: { type: "integer", description: "The desired width of the SVG in pixels." },
+      height: { type: "integer", description: "The desired height of the SVG in pixels." },
+    },
+    ["prompt"],
+  ),
 ];
 
 export const CHANGE_TOOLS: ToolDefinition[] = [

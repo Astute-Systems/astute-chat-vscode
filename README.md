@@ -31,7 +31,7 @@ Private AI chat and a coding agent for VS Code, running on your own [Ollama](htt
 
 - VS Code 1.127 or later
 - [Ollama](https://ollama.com), on this machine or a server you trust
-- At least one Ollama model. Agent mode needs a model that supports tools, and images need one with vision. A GPU makes a large difference to speed.
+- At least one Ollama model. Agent mode needs a model that supports tools, and images need one with vision. A GPU makes a large difference to speed. For resource-constrained environments, consider using small models like `tinyllama`.
 
 ## Privacy
 

@@ -48,7 +48,7 @@ Global tokens retire on 1 December 2026, so use this only as a fallback until Tr
 
 - Version numbers can't be reused, and an extension name stays reserved even after removal.
 - The extension is marked `preview` in `package.json`. Remove that when it's ready for general use.
-- Marketplace images must use HTTPS, and README images can't be SVG.
+- SVG assets: The plugin can generate SVG images, diagrams, and logos. These should be used for internal documentation and examples, but remember that the Marketplace README images must use HTTPS and cannot be SVG.
 - Keep `npm run package` free of `--skip-license`.
 
 ## Documentation
