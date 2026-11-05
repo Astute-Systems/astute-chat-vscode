@@ -62,7 +62,7 @@ export function getChatSettings(): ChatSettings {
     visionModel: config.get<string>("visionModel", ""),
     agentModel: config.get<string>("agentModel", ""),
     temperature: config.get<number>("temperature", 0.25),
-    numCtx: config.get<number>("numCtx", 8192),
+    numCtx: config.get<number>("numCtx", 32768),
     numThread: config.get<number>("numThread", 0),
     keepAlive: config.get<string>("keepAlive", "30m"),
     idleTimeoutMs: config.get<number>("idleTimeoutSeconds", 600) * 1000,

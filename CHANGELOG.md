@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The default context window is now 32768 tokens, up from 8192, because thinking models filled the old one within a turn or two
+
 ## 0.18.0
 
 - Astute Chat is now Astute Code, with a new logo. Your settings, saved chats and installed extension carry over unchanged

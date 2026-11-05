@@ -112,10 +112,10 @@
         },
         "astuteChat.numCtx": {
           "type": "integer",
-          "default": 8192,
+          "default": 32768,
           "minimum": 1024,
           "maximum": 1048576,
-          "markdownDescription": "Context window in tokens. This is capped to the limit of the selected model. Larger values use more memory."
+          "markdownDescription": "Context window in tokens. This is capped to the limit of the selected model. Larger values use more memory, so lower this if a model runs slowly or doesn't fit."
         },
         "astuteChat.numThread": {
           "type": "integer",

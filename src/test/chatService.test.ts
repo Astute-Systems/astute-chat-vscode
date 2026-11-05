@@ -25,10 +25,18 @@ Module._load = function (request: string, ...rest: unknown[]) {
   return request === "vscode" ? vscodeStub : load.call(this, request, ...rest);
 };
 const { ChatService } = require("../chatService") as typeof import("../chatService");
+const { getChatSettings } = require("../config") as typeof import("../config");
 Module._load = load;
 
 const log = { info: () => undefined, warn: () => undefined, error: () => undefined };
 const events = { onStatus: () => undefined, onThinking: () => undefined, onContent: () => undefined, onTool: () => undefined, onNotice: () => undefined };
+
+test("the default context window matches the one package.json declares", () => {
+  const declared = (require("../../package.json") as { contributes: { configuration: { properties: Record<string, { default: unknown }> } } })
+    .contributes.configuration.properties["astuteChat.numCtx"].default;
+  assert.equal(getChatSettings().numCtx, 32768);
+  assert.equal(declared, 32768);
+});
 
 async function withServer(check: (service: InstanceType<typeof ChatService>, sent: () => any[]) => Promise<void>, replies: string[] = []): Promise<void> {
   const mock = await startMock((_request, response) => {

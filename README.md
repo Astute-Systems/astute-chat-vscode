@@ -1,8 +1,8 @@
 ![Astute Code](images/screenshots/banner.png)
 
-[![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen)](https://github.com/user/repo/actions/workflows/ci.yml)
-[![Test Coverage](https://img.shields.io/badge/Tests-Passing-brightgreen)](https://github.com/user/repo/actions/workflows/test.yml)
-[![Latest Release](https://img.shields.io/badge/Release-v0.18.0-blue)](https://github.com/user/repo/releases/latest)
+[![Build](https://img.shields.io/github/actions/workflow/status/Astute-Systems/astute-chat-vscode/ci.yml?branch=main&label=Build)](https://github.com/Astute-Systems/astute-chat-vscode/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/github/actions/workflow/status/Astute-Systems/astute-chat-vscode/ci.yml?branch=main&label=Tests)](https://github.com/Astute-Systems/astute-chat-vscode/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/tag/Astute-Systems/astute-chat-vscode?sort=semver&label=Release)](https://github.com/Astute-Systems/astute-chat-vscode/tags)
 
 Private AI chat and a coding agent for VS Code, running on your own [Ollama](https://ollama.com) server. It needs no cloud service, GitHub sign-in or Copilot plan, and it works with no internet connection. Astute Code sits in a tab beside Chat in the secondary side bar.
 
@@ -270,7 +270,7 @@ Astute Code follows an `AGENTS.md` file in your workspace, the same format many 
 | `astuteChat.model` | Smallest local | Model to use |
 | `astuteChat.agentModel` | The chat model | Model for Agent mode |
 | `astuteChat.visionModel` | Smallest with vision | Reads images for models without vision |
-| `astuteChat.numCtx` | `8192` | Context window, capped to the model's limit |
+| `astuteChat.numCtx` | `32768` | Context window, capped to the model's limit. Lower it if a model runs slowly or doesn't fit in memory |
 | `astuteChat.numThread` | `0` (automatic) | CPU threads for a local server |
 | `astuteChat.keepAlive` | `30m` | How long a model stays loaded |
 | `astuteChat.idleTimeoutSeconds` | `600` | Stops if the server sends nothing for this long |
