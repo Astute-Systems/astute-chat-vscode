@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Models such as `qwen2.5-coder` that write tool calls as plain text now work, instead of showing the JSON as the answer
+
 ## 0.19.0
 
 - Agent checks that its work really finished: a failing task gets 10 more tool rounds, failed edits count as failures, and a new error no longer uses up the three fix attempts

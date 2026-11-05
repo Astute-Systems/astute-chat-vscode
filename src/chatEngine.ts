@@ -195,6 +195,67 @@ export function claimsToolsBroken(reply: string): boolean {
     || /\btools?\b[^.\n]{0,40}\b(unable|can't|cannot|not able|don't work|aren't working|not working|unavailable)\b/i.test(reply);
 }
 
+function toolCallFrom(item: unknown, tools: readonly string[]): ToolCall | undefined {
+  const { name, arguments: args, parameters } = (item ?? {}) as { name?: unknown; arguments?: unknown; parameters?: unknown };
+  const values = args ?? parameters ?? {};
+  const named = typeof name === "string" && tools.includes(name);
+  return named && typeof values === "object" && !Array.isArray(values) ? { function: { name: name as string, arguments: values as Record<string, unknown> } } : undefined;
+}
+
+function parsedCalls(block: string, tools: readonly string[]): ToolCall[] | undefined {
+  const toCalls = (text: string): ToolCall[] | undefined => {
+    const calls = [JSON.parse(text)].flat().map((item) => toolCallFrom(item, tools));
+    return calls.length && calls.every(Boolean) ? (calls as ToolCall[]) : undefined;
+  };
+  try {
+    return toCalls(block);
+  } catch {
+    try {
+      const lines = block.split("\n").filter((text) => text.trim()).map(toCalls);
+      return lines.length && lines.every(Boolean) ? (lines as ToolCall[][]).flat() : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+export interface WrittenCalls {
+  calls: ToolCall[];
+  /** Text the model wrote before the calls, which stays in the reply. */
+  before: string;
+}
+
+/**
+ * Some models write tool calls as text, which Ollama then returns as the reply. They only count
+ * at the very end of a reply and only if they name an offered tool. They then go through the same
+ * mode checks and approvals as any other call, so this gives a model nothing it couldn't already do.
+ */
+export function textToolCalls(reply: string, tools: readonly string[]): WrittenCalls {
+  const text = reply.trim();
+  const tagged = [...text.matchAll(/<tool_call>([\s\S]*?)<\/tool_call>/g)];
+  if (tagged.length) {
+    const calls = text.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim() ? undefined : tagged.map((match) => parsedCalls(match[1], tools));
+    return { calls: calls?.every(Boolean) ? (calls as ToolCall[][]).flat() : [], before: "" };
+  }
+  const whole = parsedCalls(text, tools);
+  if (whole) {
+    return { calls: whole, before: "" };
+  }
+  const calls: ToolCall[] = [];
+  let rest = text;
+  for (;;) {
+    const fenced = rest.endsWith("```") ? rest.lastIndexOf("```", rest.length - 4) : -1;
+    const start = fenced >= 0 ? fenced : rest.lastIndexOf("\n") + 1;
+    const block = fenced >= 0 ? rest.slice(fenced + 3, -3).replace(/^json\b/, "") : rest.slice(start);
+    const found = parsedCalls(block.trim(), tools);
+    if (!found) {
+      return { calls, before: rest };
+    }
+    calls.unshift(...found);
+    rest = rest.slice(0, start).trimEnd();
+  }
+}
+
 /** A reply that ends by saying what it will do next, instead of doing it. */
 export function announcesMoreWork(reply: string): boolean {
   const last = reply.trim().split(/\n\s*\n/).at(-1) ?? "";
@@ -313,6 +374,7 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
       report();
 
       const offerTools = request.tools && !askedForAnswer && round < toolRounds;
+      const roundStart = content.length;
       toolsOffered = Boolean(offerTools);
       const outcome = await client.chat(
         {
@@ -340,6 +402,19 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
 
       meter.endRound(outcome.usage);
       lastUsage = outcome.usage;
+      if (offerTools && outcome.toolCalls.length === 0) {
+        const written = textToolCalls(outcome.content, request.tools?.definitions.map((definition) => definition.function.name) ?? []);
+        if (written.calls.length) {
+          // The call was streamed as text, so it comes back out of the reply.
+          content = `${content.slice(0, roundStart)}${written.before}`;
+          events.onContentReset?.();
+          if (content) {
+            events.onContent(content);
+          }
+          outcome.toolCalls.push(...written.calls);
+          outcome.content = written.before;
+        }
+      }
       report();
       const estimated = estimateMessages(fitted.messages) + toolTokens;
       if (outcome.usage.promptTokens && estimated >= MIN_TOKENS_TO_MEASURE) {

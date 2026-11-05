@@ -1,6 +1,6 @@
 import * as assert from "node:assert/strict";
 import { test } from "node:test";
-import { announcesMoreWork, chooseToolModel, claimsToolsBroken, clipCommandResult, commandFailed, editFailed, EngineEvents, estimateMessages, fitToContext, nextTokenScale, resolveModel, runChat, ToolRunner } from "../chatEngine";
+import { textToolCalls, announcesMoreWork, chooseToolModel, claimsToolsBroken, clipCommandResult, commandFailed, editFailed, EngineEvents, estimateMessages, fitToContext, nextTokenScale, resolveModel, runChat, ToolRunner } from "../chatEngine";
 import { ChatMessage, OllamaClient } from "../ollamaClient";
 import { line, startMock } from "./mockOllama";
 
@@ -684,4 +684,81 @@ test("long command output keeps its status and its final errors", () => {
   assert.ok(clipped.startsWith("Exit code 2"));
   assert.ok(clipped.endsWith("error: bad"));
   assert.equal(clipCommandResult("short", 1000), "short");
+});
+
+const offered = ["read_file", "list_files"];
+const bareCall = '{\n  "name": "read_file",\n  "arguments": {\n    "path": "README.md"\n  }\n}';
+
+test("recognises a tool call a model wrote as text", () => {
+  const expected = { calls: [{ function: { name: "read_file", arguments: { path: "README.md" } } }], before: "" };
+  assert.deepEqual(textToolCalls(bareCall, offered), expected);
+  assert.deepEqual(textToolCalls(`\`\`\`json\n${bareCall}\n\`\`\``, offered), expected);
+  assert.deepEqual(textToolCalls(`<tool_call>\n${bareCall}\n</tool_call>`, offered), expected);
+  assert.equal(textToolCalls(`<tool_call>${bareCall}</tool_call>\n<tool_call>${bareCall}</tool_call>`, offered).calls.length, 2);
+  assert.deepEqual(textToolCalls('{"name": "list_files"}', offered).calls, [{ function: { name: "list_files", arguments: {} } }]);
+});
+
+test("finds calls at the end of a reply, and keeps what came before", () => {
+  const fenced = textToolCalls(`Let's read it.\n\n\`\`\`json\n${bareCall}\n\`\`\``, offered);
+  assert.equal(fenced.calls.length, 1);
+  assert.equal(fenced.before, "Let's read it.");
+  const line = '{"name": "read_file", "arguments": {"path": "a"}}';
+  const lines = textToolCalls(`Reading these:\n${line}\n${line}\n${line}`, offered);
+  assert.equal(lines.calls.length, 3);
+  assert.equal(lines.before, "Reading these:");
+  assert.equal(textToolCalls(`${line}\n${line}`, offered).calls.length, 2);
+  assert.equal(textToolCalls(`First:\n\`\`\`json\n${line}\n\`\`\`\n\`\`\`json\n${line}\n\`\`\``, offered).calls.length, 2);
+});
+
+test("leaves replies alone unless they end in a call to an offered tool", () => {
+  const none = (reply: string): void => assert.deepEqual(textToolCalls(reply, offered).calls, [], reply);
+  none(`\`\`\`json\n${bareCall}\n\`\`\`\nThat is what a call looks like.`);
+  none(`Here's an example:\n${bareCall}`);
+  none(`Run this: <tool_call>${bareCall}</tool_call>`);
+  none('{"name": "run_command", "arguments": {"command": "rm -rf /"}}');
+  none('Now:\n```json\n{"name": "run_command", "arguments": {"command": "rm -rf /"}}\n```');
+  none('{"name": "astute", "version": "1.0"}');
+  none(`[${bareCall}, {"name": "run_command"}]`);
+  none('{"name": "read_file", "arguments": "README.md"}');
+  none("{not json");
+  none("The answer is 42.");
+  none("```python\nprint(1)\n```");
+});
+
+test("runs a written tool call and answers, with the JSON gone from the reply", async (t) => {
+  const replies = [bareCall, "It's an Ollama client."];
+  const mock = await startMock((_req, res) => res.end(line({ message: { content: replies.shift() }, done: true, eval_count: 1 })));
+  t.after(() => mock.close());
+  const ran: string[] = [];
+  let shown = "";
+  const events = { ...recorder(), onContent: (text: string) => void (shown += text), onContentReset: () => void (shown = "") };
+  const tools = {
+    definitions: [{ type: "function", function: { name: "read_file" } }] as never,
+    run: async (call: { function: { name: string } }) => {
+      ran.push(call.function.name);
+      return "file text";
+    },
+  };
+  const result = await runChat({ ...retryRequest(mock.url, events, tools) });
+  assert.deepEqual(ran, ["read_file"]);
+  assert.equal(result.content, "It's an Ollama client.");
+  assert.equal(shown, "It's an Ollama client.");
+  assert.deepEqual(mock.requests.filter((r) => r.path === "/api/chat")[1].body.messages.at(-1).role, "tool");
+});
+
+test("text before a written tool call stays in the reply", async (t) => {
+  const replies = [`Let's read it.\n\n\`\`\`json\n${bareCall}\n\`\`\``, "All read."];
+  const mock = await startMock((_req, res) => res.end(line({ message: { content: replies.shift() }, done: true, eval_count: 1 })));
+  t.after(() => mock.close());
+  const tools = { definitions: [{ type: "function", function: { name: "read_file" } }] as never, run: async () => "file text" };
+  const result = await runChat({ ...retryRequest(mock.url, recorder(), tools) });
+  assert.match(result.content, /^Let's read it\.[\s\S]*All read\.$/);
+  assert.doesNotMatch(result.content, /read_file/);
+});
+
+test("a tool call written as text is only run when tools were offered", async (t) => {
+  const mock = await startMock((_req, res) => res.end(line({ message: { content: bareCall }, done: true, eval_count: 1 })));
+  t.after(() => mock.close());
+  const result = await runChat({ client: new OllamaClient(mock.url), model: "tiny:1b", messages: [{ role: "user", content: "go" }], contextLimit: 4096, temperature: 0, keepAlive: "5m", idleTimeoutMs: 1000, think: false, events: recorder() });
+  assert.equal(result.content, bareCall);
 });
