@@ -1,6 +1,6 @@
 import * as assert from "node:assert/strict";
 import { test } from "node:test";
-import { textToolCalls, announcesMoreWork, chooseToolModel, claimsToolsBroken, clipCommandResult, commandFailed, editFailed, EngineEvents, estimateMessages, fitToContext, nextTokenScale, resolveModel, runChat, ToolRunner } from "../chatEngine";
+import { textToolCalls, unofferedTool, announcesMoreWork, chooseToolModel, claimsToolsBroken, clipCommandResult, commandFailed, editFailed, EngineEvents, estimateMessages, fitToContext, nextTokenScale, resolveModel, runChat, ToolRunner } from "../chatEngine";
 import { ChatMessage, OllamaClient } from "../ollamaClient";
 import { line, startMock } from "./mockOllama";
 
@@ -702,6 +702,9 @@ test("finds calls at the end of a reply, and keeps what came before", () => {
   const fenced = textToolCalls(`Let's read it.\n\n\`\`\`json\n${bareCall}\n\`\`\``, offered);
   assert.equal(fenced.calls.length, 1);
   assert.equal(fenced.before, "Let's read it.");
+  const paragraph = textToolCalls(`I'll list the files.\n\n${bareCall}`, offered);
+  assert.equal(paragraph.calls.length, 1);
+  assert.equal(paragraph.before, "I'll list the files.");
   const line = '{"name": "read_file", "arguments": {"path": "a"}}';
   const lines = textToolCalls(`Reading these:\n${line}\n${line}\n${line}`, offered);
   assert.equal(lines.calls.length, 3);
@@ -754,6 +757,9 @@ test("text before a written tool call stays in the reply", async (t) => {
   const result = await runChat({ ...retryRequest(mock.url, recorder(), tools) });
   assert.match(result.content, /^Let's read it\.[\s\S]*All read\.$/);
   assert.doesNotMatch(result.content, /read_file/);
+  const [, assistant] = mock.requests.filter((r) => r.path === "/api/chat")[1].body.messages.slice(-3);
+  assert.equal(assistant.content, "", "some templates drop a tool call that has text with it");
+  assert.equal(assistant.tool_calls[0].function.name, "read_file");
 });
 
 test("a tool call written as text is only run when tools were offered", async (t) => {
@@ -761,4 +767,36 @@ test("a tool call written as text is only run when tools were offered", async (t
   t.after(() => mock.close());
   const result = await runChat({ client: new OllamaClient(mock.url), model: "tiny:1b", messages: [{ role: "user", content: "go" }], contextLimit: 4096, temperature: 0, keepAlive: "5m", idleTimeoutMs: 1000, think: false, events: recorder() });
   assert.equal(result.content, bareCall);
+});
+
+test("spots a tool call that names something that isn't a tool", () => {
+  const call = '{\n  "name": "workspace-overview",\n  "arguments": {}\n}';
+  assert.equal(unofferedTool(call, offered), "workspace-overview");
+  assert.equal(unofferedTool(`\`\`\`json\n${call}\n\`\`\``, offered), "workspace-overview");
+  assert.equal(unofferedTool(`Checking.\n\`\`\`json\n${call}\n\`\`\``, offered), "workspace-overview");
+  assert.equal(unofferedTool(`Checking.\n\n${call}`, offered), "workspace-overview");
+  assert.equal(unofferedTool(bareCall, offered), undefined);
+  assert.equal(unofferedTool('{"name": "astute", "version": "1.0"}', offered), undefined);
+  assert.equal(unofferedTool("The answer is 42.", offered), undefined);
+});
+
+const unknownCall = '{"name": "workspace-overview", "arguments": {}}';
+const readTool = { definitions: [{ type: "function", function: { name: "read_file" } }] as never, run: async () => { throw new Error("nothing should run"); } };
+
+test("a made-up tool is sent back with the real tools, and runs nothing", async (t) => {
+  const replies = [unknownCall, "It's a game engine."];
+  const mock = await startMock((_req, res) => res.end(line({ message: { content: replies.shift() }, done: true, eval_count: 1 })));
+  t.after(() => mock.close());
+  const result = await runChat({ ...retryRequest(mock.url, recorder(), readTool), retryWithoutTools: undefined });
+  assert.equal(result.content, "It's a game engine.");
+  const told = mock.requests.filter((r) => r.path === "/api/chat")[1].body.messages.at(-1).content as string;
+  assert.match(told, /no tool called workspace-overview/);
+  assert.match(told, /read_file/);
+});
+
+test("a model that keeps making up tools can't loop forever", async (t) => {
+  const mock = await startMock((_req, res) => res.end(line({ message: { content: unknownCall }, done: true, eval_count: 1 })));
+  t.after(() => mock.close());
+  await runChat({ ...retryRequest(mock.url, recorder(), readTool), retryWithoutTools: undefined });
+  assert.equal(mock.requests.filter((r) => r.path === "/api/chat").length, 3);
 });

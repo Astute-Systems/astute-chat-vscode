@@ -7,6 +7,8 @@ const STATUS_INTERVAL_MS = 250;
 const KEEP_TOOL_RESULTS = 2;
 const MAX_FIX_ATTEMPTS = 3;
 const MAX_FAILURE_CHARS = 2000;
+const MAX_TOOL_NAME_CHARS = 60;
+const MAX_UNOFFERED_RETRIES = 2;
 /** More tool rounds for a task whose last command or edit failed, so it isn't cut off midway through a fix. */
 const EXTRA_FIX_ROUNDS = 10;
 const OUT_OF_ROUNDS = "You've run out of tool rounds and the last command or edit still failed, so the task isn't finished. You can't call any more tools. Don't say you'll do more. Say what you changed, what still fails, and quote the error.";
@@ -219,6 +221,15 @@ function parsedCalls(block: string, tools: readonly string[]): ToolCall[] | unde
   }
 }
 
+/** The ways a reply can end in a block of JSON: a code fence, a paragraph or a line. */
+function endingBlocks(text: string): Array<{ start: number; block: string }> {
+  if (text.endsWith("```")) {
+    const start = text.lastIndexOf("```", text.length - 4);
+    return start < 0 ? [] : [{ start, block: text.slice(start + 3, -3).replace(/^json\b/, "").trim() }];
+  }
+  return [text.lastIndexOf("\n\n") + 1, text.lastIndexOf("\n") + 1].map((start) => ({ start, block: text.slice(start).trim() }));
+}
+
 export interface WrittenCalls {
   calls: ToolCall[];
   /** Text the model wrote before the calls, which stays in the reply. */
@@ -244,16 +255,31 @@ export function textToolCalls(reply: string, tools: readonly string[]): WrittenC
   const calls: ToolCall[] = [];
   let rest = text;
   for (;;) {
-    const fenced = rest.endsWith("```") ? rest.lastIndexOf("```", rest.length - 4) : -1;
-    const start = fenced >= 0 ? fenced : rest.lastIndexOf("\n") + 1;
-    const block = fenced >= 0 ? rest.slice(fenced + 3, -3).replace(/^json\b/, "") : rest.slice(start);
-    const found = parsedCalls(block.trim(), tools);
-    if (!found) {
+    const end = endingBlocks(rest).flatMap(({ start, block }) => {
+      const found = parsedCalls(block, tools);
+      return found ? [{ start, found }] : [];
+    })[0];
+    if (!end) {
       return { calls, before: rest };
     }
-    calls.unshift(...found);
-    rest = rest.slice(0, start).trimEnd();
+    calls.unshift(...end.found);
+    rest = rest.slice(0, end.start).trimEnd();
   }
+}
+
+/** The name in a reply that's shaped like a tool call but names no offered tool. Models take skill names for tools. */
+export function unofferedTool(reply: string, tools: readonly string[]): string | undefined {
+  const text = reply.trim().replace(/^<tool_call>|<\/tool_call>$/g, "").trim();
+  for (const { block } of endingBlocks(text)) {
+    try {
+      const [call] = [JSON.parse(block)].flat() as Array<{ name?: unknown; arguments?: unknown; parameters?: unknown } | null>;
+      const shaped = typeof call?.name === "string" && (call.arguments !== undefined || call.parameters !== undefined);
+      return shaped && !tools.includes(call.name as string) ? (call.name as string).slice(0, MAX_TOOL_NAME_CHARS) : undefined;
+    } catch {
+      // Not JSON in this form, so the next form may be.
+    }
+  }
+  return undefined;
 }
 
 /** A reply that ends by saying what it will do next, instead of doing it. */
@@ -324,6 +350,7 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
   let pushedBack = false;
   let fixAttempts = 0;
   let toldToReport = false;
+  let unofferedRetries = 0;
   let toldToFinish = false;
   let checked = false;
   let toolsOffered = true;
@@ -403,7 +430,20 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
       meter.endRound(outcome.usage);
       lastUsage = outcome.usage;
       if (offerTools && outcome.toolCalls.length === 0) {
-        const written = textToolCalls(outcome.content, request.tools?.definitions.map((definition) => definition.function.name) ?? []);
+        const offered = request.tools?.definitions.map((definition) => definition.function.name) ?? [];
+        const written = textToolCalls(outcome.content, offered);
+        const unoffered = written.calls.length ? undefined : unofferedTool(outcome.content, offered);
+        // Nothing runs from this reply. Without this, the JSON would be left as the answer.
+        if (unoffered !== undefined && unofferedRetries < MAX_UNOFFERED_RETRIES) {
+          unofferedRetries += 1;
+          content = content.slice(0, roundStart);
+          events.onContentReset?.();
+          if (content) {
+            events.onContent(content);
+          }
+          transcript.push({ role: "assistant", content: outcome.content }, { role: "user", content: `There's no tool called ${unoffered}. Skills are instructions, not tools. The only tools are: ${offered.join(", ")}. Call one of those now, or answer in plain text.` });
+          continue;
+        }
         if (written.calls.length) {
           // The call was streamed as text, so it comes back out of the reply.
           content = `${content.slice(0, roundStart)}${written.before}`;
@@ -412,7 +452,8 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
             events.onContent(content);
           }
           outcome.toolCalls.push(...written.calls);
-          outcome.content = written.before;
+          // Stays out of the history, because some model templates drop a tool call that has text with it.
+          outcome.content = "";
         }
       }
       report();

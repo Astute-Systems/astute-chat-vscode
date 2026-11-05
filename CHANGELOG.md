@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.19.1
 
 - Models such as `qwen2.5-coder` that write tool calls as plain text now work, instead of showing the JSON as the answer
+- A model that calls a tool that doesn't exist, often a skill name, is now told the real tools instead of ending with the JSON as its answer
 
 ## 0.19.0
 
