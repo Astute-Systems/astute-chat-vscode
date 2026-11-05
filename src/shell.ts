@@ -39,7 +39,8 @@ export function runShell(command: string, cwd: string, timeoutMs: number, signal
       forceTimer = setTimeout(() => send("SIGKILL"), KILL_GRACE_MS);
     };
     const collect = (chunk: Buffer): void => {
-      output = (output + chunk.toString("utf8")).slice(0, MAX_OUTPUT_CHARS);
+      // Builds print their errors last, so the end is what must survive.
+      output = (output + chunk.toString("utf8")).slice(-MAX_OUTPUT_CHARS);
     };
     const finish = (exitCode: number | null): void => {
       if (settled) {

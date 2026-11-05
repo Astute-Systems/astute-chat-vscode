@@ -3,7 +3,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { ChangeRequest, checkCommand, interactiveCommandHint } from "./approvals";
 import type { ChangeJournal } from "./changeJournal";
-import { REFUSED, ToolRunner } from "./chatEngine";
+import { clipCommandResult, REFUSED, ToolRunner } from "./chatEngine";
 import { chunkFile, CodeChunk, rankChunks } from "./codeSearch";
 import { BUILD_OUTPUT_GLOB, checkEditContent, checkFileContent, IMAGE_FILE } from "./contentGuard";
 import type { ChatMode } from "./modes";
@@ -514,7 +514,7 @@ async function runCommand(command: string, confirm: ConfirmChange, signal?: Abor
   const status = result.stopped ? "Stopped by the user" : result.timedOut ? "Timed out" : `Exit code ${String(result.exitCode)}`;
   const warning = empty.length ? `\n${REFUSED}${empty.join(", ")} ${empty.length === 1 ? "is" : "are"} empty, so the build did not produce a real result.` : "";
   const hint = result.exitCode === 0 ? interactiveCommandHint(command) : undefined;
-  return clip(`${warning.trim()}${warning ? "\n" : ""}${status}\n${result.output || "(no output)"}${hint ? `\n${hint}` : ""}`);
+  return clipCommandResult(`${warning.trim()}${warning ? "\n" : ""}${status}\n${result.output || "(no output)"}${hint ? `\n${hint}` : ""}`, MAX_RESULT_CHARS);
 }
 
 export interface ToolOptions {

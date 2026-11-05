@@ -6,7 +6,11 @@ const DEFAULT_TOOL_ROUNDS = 6;
 const STATUS_INTERVAL_MS = 250;
 const KEEP_TOOL_RESULTS = 2;
 const MAX_FIX_ATTEMPTS = 3;
-const MAX_FAILURE_CHARS = 600;
+const MAX_FAILURE_CHARS = 2000;
+/** More tool rounds for a task whose last command or edit failed, so it isn't cut off midway through a fix. */
+const EXTRA_FIX_ROUNDS = 10;
+const OUT_OF_ROUNDS = "You've run out of tool rounds and the last command or edit still failed, so the task isn't finished. You can't call any more tools. Don't say you'll do more. Say what you changed, what still fails, and quote the error.";
+const FINISH_WHAT_YOU_SAID = "You said you'd do more, but you stopped without calling a tool. Do it now. If there's nothing left to do, say that the task is finished.";
 /** Latest tool results are never removed, but they can shrink this far to leave room for the answer. */
 const MIN_RESULT_TOKENS = 200;
 const RESULT_SHORTENED = "\n[Shortened to fit the context window. Read a smaller range for more.]";
@@ -20,6 +24,9 @@ const MAX_TOKEN_SCALE = 2;
 
 /** Tool results starting with this are also shown to the user. */
 export const REFUSED = "Refused: ";
+
+const GUIDANCE_INTRO = "The user added this while you were working. Take it into account, change course if it asks you to, and carry on:\n";
+const SKIPPED_FOR_GUIDANCE = "Skipped: the user sent new guidance before this ran. Read it, then decide whether this is still needed.";
 
 export interface ToolRunner {
   definitions: ToolDefinition[];
@@ -58,6 +65,8 @@ export interface EngineRequest {
   fixFailures?: string;
   /** Checks a finished reply. What it returns is sent back once, and that retry replaces the reply. */
   checkReply?: (reply: string) => Promise<string | undefined>;
+  /** Hands over guidance the user has sent since the last call. It's only ever text for the model, so it can't approve anything. */
+  takeGuidance?: () => string[];
   signal?: AbortSignal;
   events: EngineEvents;
 }
@@ -156,7 +165,9 @@ export function fitToContext(messages: ChatMessage[], limit: number, requestInde
     const room = Math.max(MIN_RESULT_TOKENS, Math.floor((budget - others) / Math.max(results.length, 1)) - overhead);
     for (const index of results) {
       if (estimateTokens(kept[index].content) > room) {
-        kept[index] = { ...kept[index], content: `${kept[index].content.slice(0, room * CHARS_PER_TOKEN)}${RESULT_SHORTENED}` };
+        const { content } = kept[index];
+        const shortened = commandFailed(content) ? clipCommandResult(content, room * CHARS_PER_TOKEN) : content.slice(0, room * CHARS_PER_TOKEN);
+        kept[index] = { ...kept[index], content: `${shortened}${RESULT_SHORTENED}` };
       }
     }
   }
@@ -182,6 +193,26 @@ export function chooseToolModel(models: ReadonlyArray<{ name: string; size: numb
 export function claimsToolsBroken(reply: string): boolean {
   return /\b(unable|can't|cannot|can not|not able|couldn't|don't have (the )?(ability|access))\b[^.\n]{0,40}\b(tools?|list|search|access|read|run|execute|perform|browse)\b/i.test(reply)
     || /\btools?\b[^.\n]{0,40}\b(unable|can't|cannot|not able|don't work|aren't working|not working|unavailable)\b/i.test(reply);
+}
+
+/** A reply that ends by saying what it will do next, instead of doing it. */
+export function announcesMoreWork(reply: string): boolean {
+  const last = reply.trim().split(/\n\s*\n/).at(-1) ?? "";
+  return !last.endsWith("?") && /\b(i will now|i'll now|i am going to|i'm going to|let me now|now i will|now i'll|next,? i will|next,? i'll)\b/i.test(last);
+}
+
+/** Tools report failure in words, so only their success messages count as success. */
+export function editFailed(result: string): boolean {
+  return !/^(Edited|Created|Replaced) /.test(result) && !result.startsWith("The user denied");
+}
+
+/** Keeps the status at the start and most of the end, where builds and tests print their errors. */
+export function clipCommandResult(text: string, maxChars: number): string {
+  if (text.length <= maxChars) {
+    return text;
+  }
+  const start = Math.floor(maxChars / 4);
+  return `${text.slice(0, start)}\n[Output shortened]\n${text.slice(start - maxChars)}`;
 }
 
 /** The status comes first in a command result, so program output can't be mistaken for it. */
@@ -213,6 +244,10 @@ export function resolveModel(configured: string, installed: ModelInfo[]): { name
   return tagged.length === 1 ? { name: tagged[0].name } : { reason: "missing" };
 }
 
+function guidanceMessages(guidance: string[]): ChatMessage[] {
+  return guidance.map((text) => ({ role: "user", content: `${GUIDANCE_INTRO}${text}` }));
+}
+
 export async function runChat(request: EngineRequest): Promise<EngineResult> {
   const { client, events, model } = request;
   const meter = new TokenMeter(request.contextLimit);
@@ -227,9 +262,12 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
   let failedEdit = false;
   let pushedBack = false;
   let fixAttempts = 0;
+  let toldToReport = false;
+  let toldToFinish = false;
   let checked = false;
   let toolsOffered = true;
   let tokenRatio: number | undefined;
+  const waitingGuidance: string[] = [];
   const fitLimit = Math.floor(request.contextLimit / (request.tokenScale ?? 1));
 
   let reportedContext: number | undefined;
@@ -256,6 +294,14 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
 
   try {
     for (let round = 0; ; round += 1) {
+      // Guidance waits for the running tool, as stopping one midway could leave work half done.
+      transcript.push(...guidanceMessages([...waitingGuidance.splice(0), ...(request.takeGuidance?.() ?? [])]));
+      const toolRounds = (request.maxToolRounds ?? DEFAULT_TOOL_ROUNDS) + (request.fixFailures && failedOutput !== undefined ? EXTRA_FIX_ROUNDS : 0);
+      // The model can't act any more, so it mustn't end by promising to.
+      if (request.tools && request.fixFailures && failedOutput !== undefined && round >= toolRounds && !toldToReport) {
+        toldToReport = true;
+        transcript.push({ role: "user", content: `${OUT_OF_ROUNDS}\n\nIt printed:\n${failedOutput}` });
+      }
       const toolTokens = request.tools ? estimateTokens(JSON.stringify(request.tools.definitions)) : 0;
       const fitted = fitToContext(transcript, fitLimit, request.messages.length - 1, toolTokens);
       if (fitted.dropped && round === 0) {
@@ -266,7 +312,7 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
       meter.beginRound(estimateMessages(fitted.messages) + toolTokens, loaded);
       report();
 
-      const offerTools = request.tools && !askedForAnswer && round < (request.maxToolRounds ?? DEFAULT_TOOL_ROUNDS);
+      const offerTools = request.tools && !askedForAnswer && round < toolRounds;
       toolsOffered = Boolean(offerTools);
       const outcome = await client.chat(
         {
@@ -298,6 +344,16 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
       const estimated = estimateMessages(fitted.messages) + toolTokens;
       if (outcome.usage.promptTokens && estimated >= MIN_TOKENS_TO_MEASURE) {
         tokenRatio = Math.max(tokenRatio ?? 0, outcome.usage.promptTokens / estimated);
+      }
+
+      // Guidance that arrives as a reply ends is still answered, rather than left for the next request.
+      if (outcome.toolCalls.length === 0) {
+        const late = request.takeGuidance?.() ?? [];
+        if (late.length) {
+          transcript.push({ role: "assistant", content: outcome.content }, ...guidanceMessages(late));
+          startRetry();
+          continue;
+        }
       }
 
       // A failed command comes first, because its real error is more use than this.
@@ -354,6 +410,13 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
         }
       }
 
+      if (outcome.toolCalls.length === 0 && request.fixFailures && offerTools && usedTools && !toldToFinish && failedOutput === undefined && announcesMoreWork(outcome.content)) {
+        toldToFinish = true;
+        transcript.push({ role: "assistant", content: outcome.content }, { role: "user", content: FINISH_WHAT_YOU_SAID });
+        startRetry();
+        continue;
+      }
+
       // Thinking can use up the whole reply, which leaves the user with a blank answer.
       if (outcome.toolCalls.length === 0 && !content.trim()) {
         if (!askedForAnswer) {
@@ -374,6 +437,13 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
         if (request.signal?.aborted) {
           throw new OllamaError("cancelled", "Stopped.");
         }
+        waitingGuidance.push(...(request.takeGuidance?.() ?? []));
+        // Calls chosen before the guidance may be what it's trying to prevent. Ollama needs a result for each one.
+        if (waitingGuidance.length) {
+          events.onNotice(`Skipped ${call.function.name}, because your guidance arrived first.`);
+          transcript.push({ role: "tool", tool_name: call.function.name, content: SKIPPED_FOR_GUIDANCE });
+          continue;
+        }
         meter.tool(call.function.name);
         events.onStatus(meter.status());
         events.onTool(`${call.function.name}(${JSON.stringify(call.function.arguments ?? {})})`);
@@ -382,13 +452,24 @@ export async function runChat(request: EngineRequest): Promise<EngineResult> {
           events.onNotice(result);
         }
         if (call.function.name === "run_command" || call.function.name === "run_tests") {
-          failedOutput = commandFailed(result) ? failureOutput(result) : undefined;
+          const output = commandFailed(result) ? failureOutput(result) : undefined;
+          // A different error means the fixes are getting somewhere, and tool rounds still limit them.
+          if (output !== failedOutput) {
+            fixAttempts = 0;
+          }
+          failedOutput = output;
           failedEdit = false;
         } else if (call.function.name === "write_file" || call.function.name === "edit_file") {
           const errors = result.indexOf(NEW_ERRORS);
           if (errors >= 0) {
             failedOutput = result.slice(errors);
             failedEdit = true;
+          } else if (editFailed(result)) {
+            // A failed build matters more than the edit meant to fix it, so it isn't replaced.
+            if (failedOutput === undefined || failedEdit) {
+              failedOutput = result;
+              failedEdit = true;
+            }
           } else if (failedEdit) {
             failedOutput = undefined;
             failedEdit = false;

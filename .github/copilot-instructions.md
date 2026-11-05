@@ -32,6 +32,7 @@ Do not use `enabledApiProposals`. Proposed APIs work only in Insiders and must n
 
 ## Rules that are easy to miss
 
+- Guide and queued messages are text for the model. They must never settle an approval, and only the webview can add them.
 - The product is Astute Code, but the extension ID `astute-chat-ollama` and the `astuteChat.*` settings, commands, views and storage keys keep the old name on purpose. Changing them would lose users' settings and saved chats, and would start a new Marketplace listing.
 - Keep server settings at `machine` scope. Workspace-scoped settings would let a cloned repository redirect code and prompts to another server.
 - Use the `http` and `https` modules for Ollama calls, not `fetch`. Slow CPU models can exceed the `fetch` headers timeout.

@@ -13,7 +13,7 @@ import { openWorkspaceFile, readDroppedImages, resolveFiles, workspacePath } fro
 import { buildRequestContext, OpenFile } from "./contextFiles";
 import { rankFiles, withFolders } from "./filePicker";
 import { changedPlanFiles, hashPlanFiles, isPlan, openQuestions, planSteps, stepProblem } from "./planCheck";
-import { ActivePlan, ApprovalDecision, ApprovalPrompt, AttachedImage, ChatListing, FromWebview, ToWebview, TranscriptEntry, ViewState } from "./messages";
+import { ActivePlan, ApprovalDecision, ApprovalPrompt, AttachedImage, ChatListing, FromWebview, QueuedMessage, ToWebview, TranscriptEntry, ViewState } from "./messages";
 import { ApprovalLevel, ChatMode, isApprovalLevel, isChatMode, MODES } from "./modes";
 import { ChatMessage, OllamaError } from "./ollamaClient";
 import { isSensitivePath } from "./pathGuard";
@@ -118,6 +118,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private mode: ChatMode;
   private approval: ApprovalLevel;
   private pending: PendingApproval | undefined;
+  private queue: QueuedMessage[] = [];
+  private queuePaused = false;
+  private nextQueueId = 1;
   private pinned: Array<{ file: string; shown: string }> = [];
   private hiddenOpenFile: string | undefined;
   private readonly journals = new Map<number, ChangeJournal>();
@@ -218,6 +221,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 <div id="status" hidden><span class="pulse" aria-hidden="true"></span><span id="status-text"></span></div>
 <form id="composer">
   <div id="picker" role="listbox" aria-label="Workspace files" hidden></div>
+  <div id="queue" hidden></div>
   <div id="context" hidden></div>
   <div id="attachments" hidden></div>
   <textarea id="input" rows="3" aria-label="Message" ></textarea>
@@ -234,6 +238,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>
       <span>Auto</span>
     </button>
+    <button id="queue-send" type="button" class="secondary compact" title="Run this after the current reply (Ctrl+Enter)" hidden>Queue</button>
     <button id="send" type="submit">Send</button>
     <button id="stop" type="button" aria-label="Stop" title="Stop (Esc)" hidden></button>
   </div>
@@ -273,6 +278,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       contextUse: this.contextUse,
       activePlan: this.activePlan,
       planRunning: this.planRunning,
+      queued: this.queuedForView(),
+      queuePaused: this.queuePaused,
     };
   }
 
@@ -300,7 +307,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this.postState();
         break;
       case "send":
-        await this.send(message.text, message.images);
+        await this.submit(message.text, message.images, message.queue);
+        break;
+      case "removeQueued":
+        this.queue = this.queue.filter((item) => item.id !== message.id);
+        this.queuePaused = this.queuePaused && this.queue.length > 0;
+        this.postQueue();
+        break;
+      case "resumeQueue":
+        this.queuePaused = false;
+        this.postQueue();
+        await this.drainQueue();
         break;
       case "stop":
         this.stop();
@@ -595,7 +612,59 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   stop(): void {
+    // Stop means stop, so nothing waiting starts by itself in its place.
+    this.queuePaused = this.busy || this.queuePaused;
     this.abort?.abort();
+    this.postQueue();
+  }
+
+  private queuedForView(): ViewState["queued"] {
+    return this.queue.map(({ id, text, guide, images }) => ({ id, text: text || `${images?.length ?? 0} image(s)`, guide }));
+  }
+
+  private postQueue(): void {
+    this.post({ type: "queue", items: this.queuedForView(), paused: this.queuePaused });
+  }
+
+  private clearQueue(): void {
+    this.queue = [];
+    this.queuePaused = false;
+  }
+
+  /**
+   * While a reply runs, a message guides it unless asked to wait. Commands and images
+   * need a request of their own, so they always wait. Neither ever settles an approval.
+   */
+  async submit(text: string, images: AttachedImage[] = [], queue = false): Promise<void> {
+    if (!this.busy) {
+      await this.send(text, images);
+      return;
+    }
+    const trimmed = text.trim();
+    if (trimmed || images.length) {
+      const guide = !queue && !images.length && !trimmed.startsWith("/");
+      this.queue.push({ id: this.nextQueueId++, text: trimmed, guide, images: images.length ? images : undefined });
+      this.postQueue();
+    }
+  }
+
+  /** Guidance that missed its reply goes first, because it was meant for the work just done. */
+  private async drainQueue(): Promise<void> {
+    if (!this.queue.length) {
+      this.queuePaused = false;
+      return;
+    }
+    if (this.busy || this.queuePaused) {
+      return;
+    }
+    const [next] = this.queue.splice(Math.max(0, this.queue.findIndex((item) => item.guide)), 1);
+    this.postQueue();
+    await this.send(next.text, next.images);
+    await this.drainQueue();
+  }
+
+  private startQueue(): void {
+    this.drainQueue().catch((error: unknown) => this.log.error(`Could not run a queued message: ${String(error)}`));
   }
 
   private async setApproval(level: ApprovalLevel): Promise<void> {
@@ -680,6 +749,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.pinned = [];
     this.hiddenOpenFile = undefined;
     this.journals.clear();
+    this.clearQueue();
     this.chatKey += 1;
     await this.context.workspaceState.update(CHATS_KEY, this.chats);
     await this.persist();
@@ -700,9 +770,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   async clear(): Promise<void> {
     // A running reply joins the transcript when it ends, so it must end before saving.
+    // Waiting messages belong to this chat, so they go first or they'd start in the new one.
+    this.clearQueue();
     this.planRunning = false;
     this.abort?.abort();
     await this.turn;
+    this.clearQueue();
     this.saveCurrentChat();
     // An empty chat isn't saved, so it keeps its id and any notes already written for it.
     if (chatTitle(this.transcript) !== undefined) {
@@ -773,6 +846,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       if (this.turn === turn) {
         this.turn = undefined;
       }
+      this.startQueue();
     });
     this.turn = turn;
     return turn;
@@ -889,6 +963,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
         if (this.turnProblem) {
           await this.info(`Paused at step ${done + 1} of ${steps.length}. ${this.turnProblem} Answer in the chat if it needs you, then select Continue.`);
+          this.queuePaused = this.queue.length > 0;
           return;
         }
         this.activePlan = { ...this.activePlan, done: done + 1 };
@@ -897,6 +972,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     } finally {
       this.planRunning = false;
       this.postState();
+      this.startQueue();
     }
   }
 
@@ -917,7 +993,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   private get busy(): boolean {
-    return !!this.active || this.updatingContext || this.planRunning;
+    // The turn also counts, as a turn is running before its reply has begun and after it has ended.
+    return !!this.active || !!this.turn || this.updatingContext || this.planRunning;
   }
 
   /** Facts about a reply are worth keeping, but never worth stopping the chat for. */
@@ -1056,6 +1133,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       });
     this.turn = Promise.resolve(update).finally(() => {
       this.turn = undefined;
+      this.startQueue();
     });
     await this.turn;
   }
@@ -1106,6 +1184,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         skill,
         images: images.map(({ name, data }) => ({ name, data })),
         signal: abort.signal,
+        takeGuidance: () => {
+          const guidance = this.queue.filter((item) => item.guide);
+          this.queue = this.queue.filter((item) => !item.guide);
+          for (const { text } of guidance) {
+            const notice = `You added: ${text}`;
+            active.notices?.push(notice);
+            this.post({ type: "notice", text: notice });
+            // Kept with the request, so later replies know what changed.
+            user.context = `${user.context ?? ""}\n\nThe user added this while the reply ran: ${text}`;
+          }
+          if (guidance.length) {
+            this.postQueue();
+          }
+          return guidance.map((item) => item.text);
+        },
         journal,
         confirm: async (request) => {
           const result = decide(this.approval, request, getChatSettings().allowedCommands);
@@ -1164,6 +1257,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       this.turnProblem = stepProblem({ ...result, denied, reply: active.content });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Something went wrong.";
+      // What's waiting may depend on this reply, so the user decides whether it still makes sense.
+      this.queuePaused = this.queue.length > 0;
       this.log.error(`Chat failed: ${error instanceof OllamaError ? error.kind : "unknown"}: ${message}`);
       active.error = true;
       this.turnProblem = stepProblem({ failure: message, reply: "" });

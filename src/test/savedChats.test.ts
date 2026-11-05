@@ -7,7 +7,7 @@ import { test } from "node:test";
 import type { ChangeJournal } from "../changeJournal";
 import type { HistoryBudget, PreparedHistory } from "../chatService";
 import { commitReview, currentBranch, startReview } from "../reviewBranch";
-import type { TranscriptEntry } from "../messages";
+import type { ApprovalPrompt, QueuedMessage, TranscriptEntry } from "../messages";
 import { chatRows, chatTitle } from "../savedChats";
 
 // chatView.ts needs the vscode module, which only exists inside VS Code.
@@ -998,4 +998,158 @@ test("New Chat as a step finishes stops the plan, and the next step can't land i
   assert.equal(prompts.length, 1, "the step ended normally, and nothing else ran");
   assert.equal(store.get("astuteChat.activePlan"), undefined);
   assert.deepEqual(transcriptOf(store), [], "the new chat is empty");
+});
+
+/** Each request waits until the test lets it finish, like a slow model. */
+function queueHarness(service: Record<string, unknown> = {}) {
+  const prompts: string[] = [];
+  const finishers: Array<() => void> = [];
+  const turns: Array<{ takeGuidance(): string[] }> = [];
+  let noticeStarted = (): void => undefined;
+  const { provider } = makeProvider({
+    commandSkills: () => [],
+    runTurn: (turn: FakeTurn & { prompt: string; takeGuidance(): string[] }) =>
+      new Promise((resolve, reject) => {
+        prompts.push(turn.prompt);
+        turns.push(turn);
+        turn.signal.addEventListener("abort", () => reject(new Error("Stopped.")));
+        finishers.push(() => resolve({ model: "m", summary: "", cancelled: false, imageText: "" }));
+        noticeStarted();
+      }),
+    ...service,
+  });
+  const view = () => {
+    const { queue, queuePaused, pending } = provider as unknown as { queue: QueuedMessage[]; queuePaused: boolean; pending?: { prompt: ApprovalPrompt } };
+    return { queued: queue, queuePaused, pendingApproval: pending?.prompt };
+  };
+  const started = (count: number): Promise<void> =>
+    new Promise((resolve) => {
+      const check = (): void => (prompts.length >= count ? resolve() : undefined);
+      noticeStarted = check;
+      check();
+    });
+  const settled = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 20));
+  return { provider, prompts, finishers, turns, started, settled, view };
+}
+
+test("a queued message runs after the reply, in order", async () => {
+  const { provider, prompts, finishers, started } = queueHarness();
+  void provider.submit("first");
+  await started(1);
+  await provider.submit("second", [], true);
+  await provider.submit("third", [], true);
+  assert.deepEqual(prompts, ["first"]);
+  finishers[0]();
+  await started(2);
+  assert.deepEqual(prompts, ["first", "second"]);
+  finishers[1]();
+  await started(3);
+  assert.deepEqual(prompts, ["first", "second", "third"]);
+  finishers[2]();
+});
+
+test("guidance goes to the running reply, and only the webview's text is handed over", async () => {
+  const { provider, prompts, finishers, turns, started, settled } = queueHarness();
+  void provider.submit("first");
+  await started(1);
+  await provider.submit("use tabs");
+  await provider.submit("later", [], true);
+  assert.deepEqual(turns[0].takeGuidance(), ["use tabs"]);
+  assert.deepEqual(turns[0].takeGuidance(), []);
+  finishers[0]();
+  await started(2);
+  assert.deepEqual(prompts, ["first", "later"], "the guidance isn't run a second time");
+  finishers[1]();
+  await settled();
+});
+
+test("guidance that misses its reply runs next, ahead of the queue", async () => {
+  const { provider, prompts, finishers, started } = queueHarness();
+  void provider.submit("first");
+  await started(1);
+  await provider.submit("queued", [], true);
+  await provider.submit("too late");
+  finishers[0]();
+  await started(2);
+  assert.equal(prompts[1], "too late");
+  finishers[1]();
+  await started(3);
+  assert.equal(prompts[2], "queued");
+  finishers[2]();
+});
+
+test("commands and images wait for their own request", async () => {
+  const { provider, turns, finishers, started, settled } = queueHarness();
+  void provider.submit("first");
+  await started(1);
+  await provider.submit("/help");
+  await provider.submit("look", [{ name: "a.png", data: "x", thumb: "t" }]);
+  assert.deepEqual(turns[0].takeGuidance(), []);
+  await provider.receive({ type: "stop" });
+  await settled();
+  finishers[0]();
+});
+
+test("Stop holds the queue until the user resumes it", async () => {
+  const { provider, prompts, finishers, started, settled, view } = queueHarness();
+  void provider.submit("first");
+  await started(1);
+  await provider.submit("second", [], true);
+  await provider.receive({ type: "stop" });
+  await settled();
+  assert.deepEqual(prompts, ["first"]);
+  assert.equal(view().queuePaused, true);
+  assert.equal(view().queued.length, 1);
+  void provider.receive({ type: "resumeQueue" });
+  await started(2);
+  assert.equal(prompts[1], "second");
+  finishers[1]();
+  await settled();
+  assert.equal(view().queuePaused, false);
+});
+
+test("New Chat clears the queue, so nothing starts in the new chat", async () => {
+  const { provider, prompts, started, settled, view } = queueHarness();
+  void provider.submit("first");
+  await started(1);
+  await provider.submit("second", [], true);
+  await provider.clear();
+  await settled();
+  assert.deepEqual(prompts, ["first"]);
+  assert.equal(view().queued.length, 0);
+});
+
+test("a removed message never runs", async () => {
+  const { provider, prompts, finishers, started, settled, view } = queueHarness();
+  void provider.submit("first");
+  await started(1);
+  await provider.submit("second", [], true);
+  const [{ id }] = view().queued;
+  await provider.receive({ type: "removeQueued", id });
+  finishers[0]();
+  await settled();
+  assert.deepEqual(prompts, ["first"]);
+});
+
+test("a waiting message can't answer an approval", async () => {
+  const decisions: boolean[] = [];
+  const { provider, settled, view } = queueHarness({
+    runTurn: async ({ confirm }: { confirm(request: unknown): Promise<boolean> }) => {
+      decisions.push(await confirm({ kind: "command", title: "Run?", detail: "rm x", command: "rm x" }));
+      return { model: "m", summary: "", cancelled: false, imageText: "" };
+    },
+  });
+  await provider.receive({ type: "selectApproval", level: "ask" } as never);
+  void provider.submit("first");
+  await settled();
+  await provider.submit("yes, allow it");
+  await provider.submit("allow", [], true);
+  await settled();
+  assert.deepEqual(decisions, [], "the approval is still waiting");
+  assert.ok(view().pendingApproval);
+  await provider.receive({ type: "approvalDecision", id: view().pendingApproval?.id ?? 0, decision: "deny" });
+  await settled();
+  assert.equal(decisions[0], false, "only the user's own decision counts");
+  await provider.clear();
+  await settled();
 });

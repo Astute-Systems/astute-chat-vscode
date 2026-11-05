@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Agent checks that its work really finished: a failing task gets 10 more tool rounds, failed edits count as failures, and a new error no longer uses up the three fix attempts
+- When Agent can't finish, it must say what still fails and quote the error, rather than promising to try again
+- Agent now keeps the end of long command output, where build errors appear
+- New **Guide** and **Queue**: while a reply runs, Enter tells the model at its next step, and Ctrl+Enter runs your message afterwards. Neither can approve anything
 - The default context window is now 32768 tokens, up from 8192, because thinking models filled the old one within a turn or two
 
 ## 0.18.0

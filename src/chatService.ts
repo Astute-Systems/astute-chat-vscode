@@ -63,6 +63,7 @@ export interface TurnRequest {
   confirm?: ConfirmChange;
   journal?: ChangeJournal;
   skill?: Skill;
+  takeGuidance?: () => string[];
   signal?: AbortSignal;
   events: EngineEvents;
 }
@@ -446,6 +447,7 @@ export class ChatService {
       retryWithoutTools: mode.retryPrompt,
       fixFailures: mode.fixPrompt,
       checkReply: mode.id === "plan" ? async (reply) => (await planProblems(reply, useTools ? projectRoot : undefined)).join("\n") || undefined : undefined,
+      takeGuidance: request.takeGuidance,
       signal: request.signal,
       events: request.events,
     });

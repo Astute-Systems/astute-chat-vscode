@@ -32,3 +32,9 @@ test("times out", async () => {
   const result = await runShell("sleep 5", os.tmpdir(), 100);
   assert.equal(result.timedOut, true);
 });
+
+test("very long output keeps its end, where errors are", async () => {
+  const result = await runShell("yes noise | head -c 300000; echo final-error", os.tmpdir(), 10000);
+  assert.ok(result.output.length <= 200000);
+  assert.match(result.output, /final-error\s*$/);
+});

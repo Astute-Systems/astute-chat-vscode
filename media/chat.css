@@ -566,6 +566,18 @@ button.icon {
   margin-bottom: 6px;
 }
 
+#queue {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.queue-kind {
+  flex: none;
+  color: var(--muted);
+}
+
 .context-chip {
   display: inline-flex;
   gap: 4px;

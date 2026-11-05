@@ -58,6 +58,15 @@ export interface ApprovalPrompt {
 
 export type ApprovalDecision = "allow" | "allowEditsThisTurn" | "deny";
 
+/** A message waiting for the running reply. Held in memory only, like attached images. */
+export interface QueuedMessage {
+  id: number;
+  text: string;
+  /** Goes into the running reply at its next step. Otherwise it runs as its own request. */
+  guide: boolean;
+  images?: AttachedImage[];
+}
+
 export interface ChatListing {
   id: number;
   title: string;
@@ -96,6 +105,9 @@ export interface ViewState {
   activePlan?: ActivePlan;
   /** Steps are running now, so the plan can't be continued yet. */
   planRunning: boolean;
+  queued: Array<Omit<QueuedMessage, "images">>;
+  /** A stop or a failure holds the queue until the user resumes it. */
+  queuePaused: boolean;
 }
 
 export interface ActivePlan {
@@ -123,11 +135,14 @@ export type ToWebview =
   | { type: "fileMatches"; id: number; items: string[] }
   | { type: "droppedImages"; images: Array<{ name: string; dataUrl: string }>; errors: string[] }
   | { type: "approvalDone"; id: number }
+  | { type: "queue"; items: Array<Omit<QueuedMessage, "images">>; paused: boolean }
   | { type: "end"; entry: TranscriptEntry; undoable: number[] };
 
 export type FromWebview =
   | { type: "ready" }
-  | { type: "send"; text: string; images?: AttachedImage[] }
+  | { type: "send"; text: string; images?: AttachedImage[]; queue?: boolean }
+  | { type: "removeQueued"; id: number }
+  | { type: "resumeQueue" }
   | { type: "stop" }
   | { type: "selectModel"; model: string }
   | { type: "selectMode"; mode: ChatMode }

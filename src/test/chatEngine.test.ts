@@ -1,6 +1,6 @@
 import * as assert from "node:assert/strict";
 import { test } from "node:test";
-import { chooseToolModel, claimsToolsBroken, commandFailed, EngineEvents, estimateMessages, fitToContext, nextTokenScale, resolveModel, runChat, ToolRunner } from "../chatEngine";
+import { announcesMoreWork, chooseToolModel, claimsToolsBroken, clipCommandResult, commandFailed, editFailed, EngineEvents, estimateMessages, fitToContext, nextTokenScale, resolveModel, runChat, ToolRunner } from "../chatEngine";
 import { ChatMessage, OllamaClient } from "../ollamaClient";
 import { line, startMock } from "./mockOllama";
 
@@ -534,4 +534,154 @@ test("a turn that stayed inside its rounds didn't hit the limit", async (t) => {
   const result = await runChat(retryRequest(mock.url, recorder(), noopTools));
   assert.equal(result.usedTools, false);
   assert.equal(result.hitToolLimit, false);
+});
+
+test("guidance reaches the model at its next step and skips calls it hadn't started", async () => {
+  const replies = [
+    { message: { content: "", tool_calls: [{ function: { name: "first", arguments: {} } }, { function: { name: "second", arguments: {} } }] }, done: true },
+    { message: { content: "changed course" }, done: true },
+  ];
+  const bodies: Array<{ messages: ChatMessage[] }> = [];
+  const mock = await startMock((request, response) => {
+    if (request.path === "/api/chat") {
+      bodies.push(request.body);
+    }
+    response.end(line(replies.shift() ?? { message: { content: "done" }, done: true }));
+  });
+  const ran: string[] = [];
+  const waiting: string[] = [];
+  const tools = {
+    definitions: [],
+    run: async (call: { function: { name: string } }) => {
+      ran.push(call.function.name);
+      waiting.push("use tabs");
+      return "ok";
+    },
+  };
+  const events = recorder();
+  const result = await runChat({ client: new OllamaClient(mock.url), model: "tiny:1b", messages: [{ role: "user", content: "go" }], contextLimit: 4096, temperature: 0, keepAlive: "5m", idleTimeoutMs: 1000, think: false, tools: tools as never, takeGuidance: () => waiting.splice(0), events });
+  await mock.close();
+  assert.deepEqual(ran, ["first"]);
+  assert.equal(result.content, "changed course");
+  const sent = bodies[1].messages;
+  assert.match(sent.at(-2)?.content ?? "", /^Skipped/);
+  assert.match(sent.at(-1)?.content ?? "", /use tabs$/);
+  assert.equal(sent.at(-1)?.role, "user");
+  assert.ok(events.notices.some((notice) => notice.includes("Skipped second")));
+});
+
+test("guidance that arrives as a reply ends is still answered", async () => {
+  const replies = ["all done", "redone with tabs"];
+  const bodies: Array<{ messages: ChatMessage[] }> = [];
+  const mock = await startMock((request, response) => {
+    if (request.path === "/api/chat") {
+      bodies.push(request.body);
+    }
+    response.end(line({ message: { content: replies.shift() ?? "" }, done: true }));
+  });
+  const waiting = ["use tabs"];
+  let calls = 0;
+  const takeGuidance = (): string[] => (calls++ === 0 ? [] : waiting.splice(0));
+  const result = await runChat({ client: new OllamaClient(mock.url), model: "tiny:1b", messages: [{ role: "user", content: "go" }], contextLimit: 4096, temperature: 0, keepAlive: "5m", idleTimeoutMs: 1000, think: false, takeGuidance, events: recorder() });
+  await mock.close();
+  assert.equal(bodies.length, 2);
+  assert.equal(bodies[1].messages.at(-2)?.content, "all done");
+  assert.match(result.content, /all done\n\nredone with tabs/);
+});
+
+const callTool = (name: string, args: object = {}) => ({ tool_calls: [{ function: { name, arguments: args } }] });
+
+test("a failing task gets more tool rounds, then has to report honestly", async (t) => {
+  const mock = await startMock((request, res) => {
+    const offered = (request.body.tools ?? []).length > 0;
+    res.end(line({ message: { content: offered ? "" : "I will now re-run the build.", ...(offered ? callTool("run_command") : {}) }, done: true, eval_count: 1 }));
+  });
+  t.after(() => mock.close());
+  const events = recorder();
+  const tools = { definitions: [{ type: "function", function: { name: "run_command" } }] as never, run: async () => "Exit code 2\nundefined reference to SDL_Rumble" };
+  const result = await runChat({ ...retryRequest(mock.url, events, tools), maxToolRounds: 3, fixFailures: "Fix it." });
+  const chats = mock.requests.filter((r) => r.path === "/api/chat");
+  assert.equal(chats.length, 14, "3 rounds, 10 more for the fix, and a final report");
+  const last = chats.at(-1)?.body.messages.at(-1).content as string;
+  assert.match(last, /run out of tool rounds/);
+  assert.match(last, /undefined reference to SDL_Rumble/, "the model sees the real error");
+  assert.equal(result.unresolvedFailure, true);
+  assert.match(events.notices.at(-1) ?? "", /still failed when this reply ended/);
+});
+
+test("a task that isn't failing keeps the normal tool limit", async (t) => {
+  const mock = await startMock((request, res) => {
+    const offered = (request.body.tools ?? []).length > 0;
+    res.end(line({ message: { content: offered ? "" : "Finished.", ...(offered ? callTool("read_file") : {}) }, done: true, eval_count: 1 }));
+  });
+  t.after(() => mock.close());
+  const tools = { definitions: [{ type: "function", function: { name: "read_file" } }] as never, run: async () => "file text" };
+  await runChat({ ...retryRequest(mock.url, recorder(), tools), maxToolRounds: 3, fixFailures: "Fix it." });
+  assert.equal(mock.requests.filter((r) => r.path === "/api/chat").length, 4);
+});
+
+test("a new error resets the fix attempts, because that's progress", async (t) => {
+  let round = 0;
+  const mock = await startMock((_req, res) => {
+    round += 1;
+    const call = round % 2 === 1;
+    res.end(line({ message: { content: call ? "" : "Done!", ...(call ? callTool("run_command") : {}) }, done: true, eval_count: 1 }));
+  });
+  t.after(() => mock.close());
+  let builds = 0;
+  const run = async (): Promise<string> => {
+    builds += 1;
+    return builds <= 5 ? `Exit code 1\nerror ${builds}` : "Exit code 0\nok";
+  };
+  const result = await runChat({ ...retryRequest(mock.url, recorder(), { definitions: [], run }), fixFailures: "Fix it." });
+  assert.equal(builds, 6, "more than three fixes, because each error was new");
+  assert.equal(result.unresolvedFailure, false);
+});
+
+test("a failed edit stops the task ending, and a good one clears it", async (t) => {
+  const replies = [callTool("edit_file"), { content: "All done." }, callTool("edit_file"), { content: "Now it's done." }];
+  const mock = await startMock((_req, res) => res.end(line({ message: { content: "", ...replies.shift() }, done: true, eval_count: 1 })));
+  t.after(() => mock.close());
+  const results = ["old_text is empty.", "Edited a.cpp."];
+  const result = await runChat({ ...retryRequest(mock.url, recorder(), { definitions: [], run: async () => results.shift() as string }), fixFailures: "Fix it." });
+  assert.equal(mock.requests.filter((r) => r.path === "/api/chat")[2].body.messages.at(-1).content, "Fix it.\n\nIt printed:\nold_text is empty.");
+  assert.equal(result.unresolvedFailure, false);
+});
+
+test("a failed edit doesn't hide a failed build", async (t) => {
+  const replies = [callTool("run_command"), callTool("edit_file"), callTool("edit_file"), { content: "Done." }];
+  const mock = await startMock((_req, res) => res.end(line({ message: { content: "", ...(replies.shift() ?? { content: "Done." }) }, done: true, eval_count: 1 })));
+  t.after(() => mock.close());
+  const results = ["Exit code 2\nbuild error", "A path is required.", "Edited a.cpp."];
+  const result = await runChat({ ...retryRequest(mock.url, recorder(), { definitions: [], run: async () => results.shift() ?? "Edited a.cpp." }), fixFailures: "Fix it." });
+  assert.equal(result.unresolvedFailure, true, "only a passing build clears it");
+});
+
+test("a reply that only promises more work is sent back once", async (t) => {
+  const replies = [callTool("read_file"), { content: "Looks fine.\n\nI will now update the file." }, { content: "It's finished." }];
+  const mock = await startMock((_req, res) => res.end(line({ message: { content: "", ...replies.shift() }, done: true, eval_count: 1 })));
+  t.after(() => mock.close());
+  await runChat({ ...retryRequest(mock.url, recorder(), { definitions: [], run: async () => "text" }), fixFailures: "Fix it." });
+  const chats = mock.requests.filter((r) => r.path === "/api/chat");
+  assert.equal(chats.length, 3);
+  assert.match(chats[2].body.messages.at(-1).content, /You said you'd do more/);
+});
+
+test("recognises replies that stop short and edits that failed", () => {
+  assert.equal(announcesMoreWork("Fixed.\n\nTo confirm, I will now re-run the build."), true);
+  assert.equal(announcesMoreWork("I will now explain.\n\nThe build passes."), false);
+  assert.equal(announcesMoreWork("Shall I'll now run it?"), false);
+  assert.equal(editFailed("old_text is empty."), true);
+  assert.equal(editFailed("Refused: game.h contains a placeholder"), true);
+  assert.equal(editFailed("Edited a.cpp.\nNew errors after this change:"), false);
+  assert.equal(editFailed("The user denied this change."), false);
+});
+
+test("long command output keeps its status and its final errors", () => {
+  const text = `Exit code 2\n${"noise\n".repeat(5000)}main.cpp:9: error: bad`;
+  const clipped = clipCommandResult(text, 1000);
+  assert.ok(clipped.length < 1100);
+  assert.ok(clipped.startsWith("Exit code 2"));
+  assert.ok(clipped.endsWith("error: bad"));
+  assert.equal(clipCommandResult("short", 1000), "short");
 });

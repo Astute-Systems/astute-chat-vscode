@@ -163,7 +163,7 @@ Models can search the workspace from a plain description, such as "where do we r
 
 Models can read VS Code's Problems panel, and your recent terminal commands with their output, so you can say "fix that error". Terminal reading needs VS Code shell integration, which is on by default for bash, zsh, fish and PowerShell. Terminal output goes to the model only when it asks for it, so take care if your commands print secrets.
 
-If a command fails in Agent mode, the model is sent back to fix it, up to three times. If it's still failing at the end, the chat says so.
+If a command or edit fails in Agent mode, Agent reads the exit code and output and goes back to fix it. A task isn't finished until the last command passes, so a reply that says it's done is sent back. It gets three tries at the same error, and a new error starts the count again. A failing task also gets 10 extra tool rounds. If it's still failing at the end, Agent has to say what's failing and quote the error, and the chat shows it too.
 
 Long chats are summarised automatically, using the model answering the chat, so earlier decisions survive the context limit. This adds a short pause when it happens. To do it sooner, run **Astute Code: Update Chat Context**. The figure next to the Send button shows how full the context window is, and it updates during a reply.
 
@@ -184,6 +184,19 @@ Approval cards for file changes have a **View diff** button, which opens VS Code
 ## Stop a response
 
 Select **Stop** or press Esc. This ends the model's response, cancels any waiting approval, skips remaining tools, and stops a running command along with anything it started. Text received so far stays in the chat.
+
+## Guide or queue while it works
+
+You don't have to wait for a reply to finish. While one is running, the message box stays open:
+
+- **Guide**, or Enter, tells the model at its next step, without stopping it. A command that's already running finishes first, and any other tool calls it had lined up are skipped so it can rethink them. Use this to correct course.
+- **Queue**, or Ctrl+Enter, runs your message as its own request after the reply finishes. Slash commands and messages with images always queue.
+
+Waiting messages appear above the message box, and you can remove them with **×**. If guidance arrives too late for a reply, it runs next, ahead of the queue. Each queued request follows the mode and approvals set when it starts.
+
+Neither ever approves anything. If an approval is waiting, the model sees your guidance only after you've chosen.
+
+**Stop**, a failed reply or a paused plan holds the queue, so nothing starts without you. Select **Resume queue** to carry on. **New Chat** clears the queue, and waiting messages aren't saved if you reload VS Code.
 
 ## Set up
 
