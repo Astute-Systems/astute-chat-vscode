@@ -198,7 +198,7 @@ If you select **Stop**, or a reply fails or a plan pauses, anything still waitin
 ## Set up
 
 1. Start Ollama, and install a model with `ollama pull <model>`.
-2. Install Astute Code from the Extensions view. To install a VSIX file instead, run `code --install-extension astute-chat-ollama-0.18.0.vsix`.
+2. Install Astute Code from the Extensions view. To install a VSIX file instead, run `code --install-extension astute-chat-ollama-0.19.0.vsix`.
 3. Open the **Astute Code** tab beside Chat. If it's hidden, run **Astute Code: Open Chat**.
 
 To use another server, run **Astute Code: Set Server Address**, or use the server icon on the tab. The address shows in the status bar. Enter an IP address or hostname with an optional port, such as `192.168.1.20:11434`.
