@@ -62,7 +62,7 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <a href="#checking-its-work">Checking its work</a>
 <a href="#see-and-undo-what-agent-did">See and undo what Agent did</a>
 <a href="#stop-a-response">Stop a response</a>
-<a href="#guide-or-queue-while-it-works">Guide or queue while it works</a>
+<a href="#guide-a-reply-while-it-works">Guide a reply while it works</a>
 <a href="#set-up">Set up</a>
 <a href="#use-it-offline">Use it offline</a>
 <a href="#astute-vector-look">Astute Vector look</a>
@@ -234,15 +234,11 @@ footer { margin-top: 56px; padding-top: 16px; color: var(--muted); font-size: 14
 <p><strong>Undo file changes</strong> restores the files Agent wrote in that reply. It leaves alone any file that has changed since, so it can't overwrite newer work. It can't undo shell commands, and it's available until you start a new chat or reload VS Code.</p>
 <h2 id="stop-a-response">Stop a response</h2>
 <p>Select <strong>Stop</strong> or press Esc. This ends the model's response, cancels any waiting approval, skips remaining tools, and stops a running command along with anything it started. Text received so far stays in the chat.</p>
-<h2 id="guide-or-queue-while-it-works">Guide or queue while it works</h2>
-<p>You don't have to wait for a reply to finish. While one is running, the message box stays open:</p>
-<ul>
-<li><strong>Guide</strong>, or Enter, tells the model at its next step, without stopping it. A command that's already running finishes first, and any other tool calls it had lined up are skipped so it can rethink them. Use this to correct course.</li>
-<li><strong>Queue</strong>, or Ctrl+Enter, runs your message as its own request after the reply finishes. Slash commands and messages with images always queue.</li>
-</ul>
-<p>Waiting messages appear above the message box, and you can remove them with <strong>×</strong>. If guidance arrives too late for a reply, it runs next, ahead of the queue. Each queued request follows the mode and approvals set when it starts.</p>
-<p>Neither ever approves anything. If an approval is waiting, the model sees your guidance only after you've chosen.</p>
-<p><strong>Stop</strong>, a failed reply or a paused plan holds the queue, so nothing starts without you. Select <strong>Resume queue</strong> to carry on. <strong>New Chat</strong> clears the queue, and waiting messages aren't saved if you reload VS Code.</p>
+<h2 id="guide-a-reply-while-it-works">Guide a reply while it works</h2>
+<p>You don't have to wait for a reply to finish. While one is running, type in the message box and press Enter. The model reads your guidance at its next step, without stopping. A command that's already running finishes first, and any other tool calls it had lined up are skipped so it can rethink them.</p>
+<p>Waiting guidance appears above the message box until the model reads it, and you can remove it with <strong>×</strong>. If it arrives too late for that reply, it runs as the next request. So do slash commands and messages with images sent during a reply.</p>
+<p>Guidance never approves anything. If an approval is waiting, the model sees your guidance only after you've chosen.</p>
+<p>If you select <strong>Stop</strong>, or a reply fails or a plan pauses, anything still waiting goes back into the message box, so nothing starts without you. <strong>New Chat</strong> clears it, and it isn't saved if you reload VS Code.</p>
 <h2 id="set-up">Set up</h2>
 <ol>
 <li>Start Ollama, and install a model with <code>ollama pull &lt;model&gt;</code>.</li>

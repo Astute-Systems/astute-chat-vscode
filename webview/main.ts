@@ -40,7 +40,6 @@ const contextRow = element<HTMLElement>("context");
 const picker = element<HTMLElement>("picker");
 const attachments = element<HTMLElement>("attachments");
 const sendButton = element<HTMLButtonElement>("send");
-const queueButton = element<HTMLButtonElement>("queue-send");
 const queueRow = element<HTMLElement>("queue");
 const stopButton = element<HTMLButtonElement>("stop");
 
@@ -530,13 +529,13 @@ function showApproval(prompt: ApprovalPrompt): void {
   // Focus stays in the message box, so pressing Enter can never approve by accident.
 }
 
-function renderQueue(items: ViewState["queued"], paused: boolean): void {
+function renderQueue(items: ViewState["queued"]): void {
   queueRow.replaceChildren();
   queueRow.hidden = items.length === 0;
   for (const item of items) {
     const chip = create("div", "context-chip", queueRow);
-    chip.title = item.guide ? "Goes to the model at its next step" : "Runs after the current reply";
-    create("span", "queue-kind", chip, item.guide ? "Guide" : "Queued");
+    chip.title = item.guide ? "Goes to the model at its next step" : "Runs after this reply";
+    create("span", "queue-kind", chip, item.guide ? "Guide" : "Next");
     create("span", "", chip, item.text);
     const remove = create("button", "context-remove", chip, "×") as HTMLButtonElement;
     remove.type = "button";
@@ -544,18 +543,14 @@ function renderQueue(items: ViewState["queued"], paused: boolean): void {
     remove.setAttribute("aria-label", `Remove ${item.text}`);
     remove.addEventListener("click", () => vscode.postMessage({ type: "removeQueued", id: item.id }));
   }
-  if (paused) {
-    const resume = create("button", "secondary compact", queueRow, "Resume queue") as HTMLButtonElement;
-    resume.type = "button";
-    resume.addEventListener("click", () => vscode.postMessage({ type: "resumeQueue" }));
-  }
 }
 
+const GUIDE_PLACEHOLDER = "Guide the agent. It reads this at its next step.";
+
 function setBusy(busy: boolean): void {
-  sendButton.textContent = busy ? "Guide" : "Send";
-  sendButton.title = busy ? "Tell the model at its next step (Enter)" : "";
-  queueButton.hidden = !busy;
+  sendButton.hidden = busy;
   stopButton.hidden = !busy;
+  input.placeholder = busy ? GUIDE_PLACEHOLDER : MODES[currentMode].placeholder;
   stopButton.disabled = false;
   stopButton.classList.remove("stopping");
   stopButton.title = "Stop (Esc)";
@@ -695,7 +690,7 @@ function updatePicker(): void {
 
 function renderHeader(state: ViewState): void {
   renderContext(state);
-  renderQueue(state.queued, state.queuePaused);
+  renderQueue(state.queued);
   renderHistory(state);
   undoable = new Set(state.undoable);
   reviewToggle.classList.toggle("on", state.reviewMode);
@@ -705,7 +700,7 @@ function renderHeader(state: ViewState): void {
   currentMode = state.mode;
   approvalLevel = state.approval;
   renderApprovalLevel();
-  input.placeholder = MODES[state.mode].placeholder;
+  input.placeholder = state.busy ? GUIDE_PLACEHOLDER : MODES[state.mode].placeholder;
   const names = [...state.models];
   if (state.model && !names.includes(state.model)) {
     names.unshift(state.model);
@@ -807,7 +802,12 @@ window.addEventListener("message", (event: MessageEvent<ToWebview>) => {
       statusText.textContent = message.text;
       break;
     case "queue":
-      renderQueue(message.items, message.paused);
+      renderQueue(message.items);
+      break;
+    case "restoreDraft":
+      input.value = [message.text, input.value].filter(Boolean).join("\n");
+      attached = [...message.images, ...attached];
+      renderAttachments();
       break;
     case "contextUse":
       showContextUse(message.percent);
@@ -876,22 +876,17 @@ window.addEventListener("message", (event: MessageEvent<ToWebview>) => {
   }
 });
 
-function submitMessage(queue: boolean): void {
+form.addEventListener("submit", (event) => {
+  event.preventDefault();
   const text = input.value.trim();
   if (text || attached.length) {
-    vscode.postMessage({ type: "send", text, images: attached.length ? attached : undefined, queue });
+    vscode.postMessage({ type: "send", text, images: attached.length ? attached : undefined });
     input.value = "";
     attached = [];
     attachmentError = "";
     renderAttachments();
   }
-}
-
-form.addEventListener("submit", (event) => {
-  event.preventDefault();
-  submitMessage(false);
 });
-queueButton.addEventListener("click", () => submitMessage(true));
 
 function requestStop(): void {
   if (!stopButton.hidden && !stopButton.disabled) {
@@ -932,11 +927,7 @@ input.addEventListener("keydown", (event) => {
   }
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
-    if (event.ctrlKey || event.metaKey) {
-      submitMessage(true);
-    } else {
-      form.requestSubmit();
-    }
+    form.requestSubmit();
   }
 });
 

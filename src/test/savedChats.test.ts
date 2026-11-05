@@ -7,7 +7,7 @@ import { test } from "node:test";
 import type { ChangeJournal } from "../changeJournal";
 import type { HistoryBudget, PreparedHistory } from "../chatService";
 import { commitReview, currentBranch, startReview } from "../reviewBranch";
-import type { ApprovalPrompt, QueuedMessage, TranscriptEntry } from "../messages";
+import type { ApprovalPrompt, QueuedMessage, ToWebview, TranscriptEntry } from "../messages";
 import { chatRows, chatTitle } from "../savedChats";
 
 // chatView.ts needs the vscode module, which only exists inside VS Code.
@@ -1018,9 +1018,11 @@ function queueHarness(service: Record<string, unknown> = {}) {
       }),
     ...service,
   });
+  const posted: ToWebview[] = [];
+  (provider as unknown as { post(message: ToWebview): void }).post = (message) => void posted.push(message);
   const view = () => {
-    const { queue, queuePaused, pending } = provider as unknown as { queue: QueuedMessage[]; queuePaused: boolean; pending?: { prompt: ApprovalPrompt } };
-    return { queued: queue, queuePaused, pendingApproval: pending?.prompt };
+    const { queue, pending } = provider as unknown as { queue: QueuedMessage[]; pending?: { prompt: ApprovalPrompt } };
+    return { queued: queue, pendingApproval: pending?.prompt };
   };
   const started = (count: number): Promise<void> =>
     new Promise((resolve) => {
@@ -1029,90 +1031,66 @@ function queueHarness(service: Record<string, unknown> = {}) {
       check();
     });
   const settled = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 20));
-  return { provider, prompts, finishers, turns, started, settled, view };
+  return { provider, prompts, finishers, turns, started, settled, view, posted };
 }
 
-test("a queued message runs after the reply, in order", async () => {
-  const { provider, prompts, finishers, started } = queueHarness();
-  void provider.submit("first");
-  await started(1);
-  await provider.submit("second", [], true);
-  await provider.submit("third", [], true);
-  assert.deepEqual(prompts, ["first"]);
-  finishers[0]();
-  await started(2);
-  assert.deepEqual(prompts, ["first", "second"]);
-  finishers[1]();
-  await started(3);
-  assert.deepEqual(prompts, ["first", "second", "third"]);
-  finishers[2]();
-});
-
-test("guidance goes to the running reply, and only the webview's text is handed over", async () => {
+test("guidance goes to the running reply and doesn't run again", async () => {
   const { provider, prompts, finishers, turns, started, settled } = queueHarness();
   void provider.submit("first");
   await started(1);
   await provider.submit("use tabs");
-  await provider.submit("later", [], true);
   assert.deepEqual(turns[0].takeGuidance(), ["use tabs"]);
   assert.deepEqual(turns[0].takeGuidance(), []);
   finishers[0]();
-  await started(2);
-  assert.deepEqual(prompts, ["first", "later"], "the guidance isn't run a second time");
-  finishers[1]();
   await settled();
+  assert.deepEqual(prompts, ["first"]);
 });
 
-test("guidance that misses its reply runs next, ahead of the queue", async () => {
+test("guidance that misses its reply runs next, in order", async () => {
   const { provider, prompts, finishers, started } = queueHarness();
   void provider.submit("first");
   await started(1);
-  await provider.submit("queued", [], true);
   await provider.submit("too late");
+  await provider.submit("also late");
   finishers[0]();
   await started(2);
   assert.equal(prompts[1], "too late");
   finishers[1]();
   await started(3);
-  assert.equal(prompts[2], "queued");
+  assert.equal(prompts[2], "also late");
   finishers[2]();
 });
 
 test("commands and images wait for their own request", async () => {
-  const { provider, turns, finishers, started, settled } = queueHarness();
+  const { provider, turns, started, settled, view } = queueHarness();
   void provider.submit("first");
   await started(1);
   await provider.submit("/help");
   await provider.submit("look", [{ name: "a.png", data: "x", thumb: "t" }]);
   assert.deepEqual(turns[0].takeGuidance(), []);
-  await provider.receive({ type: "stop" });
+  assert.equal(view().queued.length, 2);
+  await provider.clear();
   await settled();
-  finishers[0]();
 });
 
-test("Stop holds the queue until the user resumes it", async () => {
-  const { provider, prompts, finishers, started, settled, view } = queueHarness();
+test("Stop puts waiting text back in the message box, and nothing starts", async () => {
+  const { provider, prompts, started, settled, view, posted } = queueHarness();
   void provider.submit("first");
   await started(1);
-  await provider.submit("second", [], true);
+  await provider.submit("use tabs");
+  await provider.submit("and spaces");
   await provider.receive({ type: "stop" });
   await settled();
   assert.deepEqual(prompts, ["first"]);
-  assert.equal(view().queuePaused, true);
-  assert.equal(view().queued.length, 1);
-  void provider.receive({ type: "resumeQueue" });
-  await started(2);
-  assert.equal(prompts[1], "second");
-  finishers[1]();
-  await settled();
-  assert.equal(view().queuePaused, false);
+  assert.equal(view().queued.length, 0);
+  assert.deepEqual(posted.filter((message) => message.type === "restoreDraft"), [{ type: "restoreDraft", text: "use tabs\nand spaces", images: [] }]);
 });
 
-test("New Chat clears the queue, so nothing starts in the new chat", async () => {
+test("New Chat clears waiting messages, so nothing starts in the new chat", async () => {
   const { provider, prompts, started, settled, view } = queueHarness();
   void provider.submit("first");
   await started(1);
-  await provider.submit("second", [], true);
+  await provider.submit("second");
   await provider.clear();
   await settled();
   assert.deepEqual(prompts, ["first"]);
@@ -1123,7 +1101,7 @@ test("a removed message never runs", async () => {
   const { provider, prompts, finishers, started, settled, view } = queueHarness();
   void provider.submit("first");
   await started(1);
-  await provider.submit("second", [], true);
+  await provider.submit("second");
   const [{ id }] = view().queued;
   await provider.receive({ type: "removeQueued", id });
   finishers[0]();
@@ -1143,7 +1121,6 @@ test("a waiting message can't answer an approval", async () => {
   void provider.submit("first");
   await settled();
   await provider.submit("yes, allow it");
-  await provider.submit("allow", [], true);
   await settled();
   assert.deepEqual(decisions, [], "the approval is still waiting");
   assert.ok(view().pendingApproval);

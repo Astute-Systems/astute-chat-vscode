@@ -185,18 +185,15 @@ Approval cards for file changes have a **View diff** button, which opens VS Code
 
 Select **Stop** or press Esc. This ends the model's response, cancels any waiting approval, skips remaining tools, and stops a running command along with anything it started. Text received so far stays in the chat.
 
-## Guide or queue while it works
+## Guide a reply while it works
 
-You don't have to wait for a reply to finish. While one is running, the message box stays open:
+You don't have to wait for a reply to finish. While one is running, type in the message box and press Enter. The model reads your guidance at its next step, without stopping. A command that's already running finishes first, and any other tool calls it had lined up are skipped so it can rethink them.
 
-- **Guide**, or Enter, tells the model at its next step, without stopping it. A command that's already running finishes first, and any other tool calls it had lined up are skipped so it can rethink them. Use this to correct course.
-- **Queue**, or Ctrl+Enter, runs your message as its own request after the reply finishes. Slash commands and messages with images always queue.
+Waiting guidance appears above the message box until the model reads it, and you can remove it with **×**. If it arrives too late for that reply, it runs as the next request. So do slash commands and messages with images sent during a reply.
 
-Waiting messages appear above the message box, and you can remove them with **×**. If guidance arrives too late for a reply, it runs next, ahead of the queue. Each queued request follows the mode and approvals set when it starts.
+Guidance never approves anything. If an approval is waiting, the model sees your guidance only after you've chosen.
 
-Neither ever approves anything. If an approval is waiting, the model sees your guidance only after you've chosen.
-
-**Stop**, a failed reply or a paused plan holds the queue, so nothing starts without you. Select **Resume queue** to carry on. **New Chat** clears the queue, and waiting messages aren't saved if you reload VS Code.
+If you select **Stop**, or a reply fails or a plan pauses, anything still waiting goes back into the message box, so nothing starts without you. **New Chat** clears it, and it isn't saved if you reload VS Code.
 
 ## Set up
 
